@@ -79,7 +79,3 @@ Country geometry is provided by the `world-atlas` npm package, which distributes
 ## DOCX Export
 
 The browser creates a Word-compatible `.docx` download containing committee metadata, portfolio intelligence summary, pressure profile, POI, legal/policy foundation, evidence and sources, documented pressure point, legal/tactical classifications, tactical impact, validation, and optional follow-up sections when present.
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Please do not commit secrets, API keys, or personal configuration.
