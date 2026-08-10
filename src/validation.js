@@ -26,10 +26,12 @@ export function classifyPressure(score, types = []) {
 }
 
 function parseJson(raw) {
-  const text = raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
+  const text = raw.trim();
+  if (/^```/i.test(text) || /```$/i.test(text)) throw new Error('Gemini returned Markdown fences instead of strict JSON.');
   try { return JSON.parse(text); }
-  catch (cause) { throw new Error('Invalid JSON returned by Gemini. Try generating again.', { cause }); }
+  catch (cause) { throw new Error('Gemini returned an invalid structured response.', { cause }); }
 }
+
 
 export function normalizeMission(raw, ctx) {
   try {
