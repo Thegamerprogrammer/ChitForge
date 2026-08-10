@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { createLiquidGlassMap } from './liquidGlass.js';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { WorldMap } from './map.jsx';
@@ -40,6 +41,7 @@ function App() {
   const [modelCatalog, setModelCatalog] = useState(null);
   const [modelInfo, setModelInfo] = useState(null);
   const [modelLoading, setModelLoading] = useState(false);
+  const [customBackground, setCustomBackground] = useState('');
 
   const updateForm = (key, value) => {
     const next = { ...form, [key]: value };
@@ -113,9 +115,11 @@ function App() {
   };
 
   return <>
-    <header className="hero">
+    <LiquidGlassFilters />
+    <div className="ambientBackdrop" style={customBackground ? { '--custom-background': `url(${customBackground})` } : undefined} />
+    <header className="hero glass-panel">
       <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
-      <button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button>
+      <div className="heroActions"><label className="backgroundPicker">Custom background<input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) setCustomBackground(URL.createObjectURL(file)); }} /></label><button onClick={() => setCustomBackground('')} disabled={!customBackground}>Reset Background</button><button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button></div>
     </header>
     <main className="layout">
       <section className="panel controls">
@@ -154,7 +158,7 @@ function App() {
         </label>)}</div>
 
         <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'GLOBAL RESEARCH ENABLED unless Selected Targets Only is used.'}</div>
-        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>; })}
+        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider" style={{ '--value': `${sliders[key]}%` }}><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>; })}
         <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing Tactical POIs…' : 'Generate Tactical POI Array'}</button>
         {error && <ErrorBox error={error} />}
       </section>
@@ -209,4 +213,28 @@ function ChitCard({ chit, number, onCopy, onFollowUp, onRegenerate }) {
   </article>;
 }
 
+
+function LiquidGlassFilters() {
+  const filters = useMemo(() => {
+    if (typeof document === 'undefined') return [];
+    return [
+      ['liquid-glass-filter-panel', createLiquidGlassMap({ width: 420, height: 260, bezelWidth: 42, glassThickness: 34, surface: 'convex-squircle', specularSaturation: 6 })],
+      ['liquid-glass-filter-button', createLiquidGlassMap({ width: 180, height: 64, bezelWidth: 22, glassThickness: 22, surface: 'convex-squircle', specularSaturation: 8 })],
+      ['liquid-glass-filter-input', createLiquidGlassMap({ width: 320, height: 58, bezelWidth: 20, glassThickness: 18, surface: 'convex-squircle', specularSaturation: 5 })],
+      ['liquid-glass-filter-switch', createLiquidGlassMap({ width: 72, height: 40, bezelWidth: 18, glassThickness: 18, surface: 'lip', specularSaturation: 7 })],
+    ];
+  }, []);
+
+  return <svg className="liquidFilterSvg" width="0" height="0" aria-hidden="true" focusable="false" colorInterpolationFilters="sRGB">
+    <defs>{filters.map(([id, map]) => <filter key={id} id={id} x="0" y="0" width={map.width} height={map.height} filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">
+      <feImage href={map.href} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="displacement_map" />
+      <feDisplacementMap in="SourceGraphic" in2="displacement_map" scale={map.scale} xChannelSelector="R" yChannelSelector="G" result="refracted" />
+      <feImage href={map.href} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="specular_map" />
+      <feColorMatrix in="specular_map" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 1.9 -0.9 0" result="specular" />
+      <feBlend in="refracted" in2="specular" mode="screen" />
+    </filter>)}</defs>
+  </svg>;
+}
+
 createRoot(document.getElementById('root')).render(<App />);
+
