@@ -1,11 +1,11 @@
-const esc = (value) => String(value ?? '').replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[char]);
+import { escapeHtml as esc, markdownToWordHtml } from './format.js';
 
 export function downloadBrief({ form, sliders, portfolioProfile, chits }) {
   const sections = chits.map((chit, index) => `<section class="target">
     <h2>CHIT #${String(index + 1).padStart(2, '0')} — ${esc(chit.target)}</h2>
     <h3>PRESSURE PROFILE</h3>
     <table><tr><td>Aggression</td><td>${chit.pressureProfile?.aggression ?? sliders.aggression}%</td></tr><tr><td>Controversy</td><td>${chit.pressureProfile?.controversy ?? sliders.controversy}%</td></tr><tr><td>Diplomacy</td><td>${chit.pressureProfile?.diplomacy ?? sliders.diplomacy}%</td></tr><tr><td>Length</td><td>${chit.pressureProfile?.length ?? sliders.length}%</td></tr><tr><td>Pressure Score</td><td>${chit.pressureProfile?.score}/100</td></tr><tr><td>Classification</td><td>${esc(chit.pressureProfile?.classification)}</td></tr></table>
-    <h3>POI</h3><blockquote>${esc(chit.poi)}</blockquote>
+    <h3>POI</h3><blockquote>${markdownToWordHtml(chit.poi)}</blockquote><p><b>Word Count:</b> ${chit.wordCount} words<br><b>Estimated Speaking Time:</b> ~${chit.estimatedSeconds} seconds</p>
     <h3>LEGAL / POLICY FOUNDATION</h3><p>${esc(chit.legalPolicyFoundation)}</p>
     <h3>EVIDENCE & SOURCES</h3>${(chit.evidence || []).map((e) => `<p><b>${esc(e.title || e.source)}</b><br>${esc(e.organization || e.publication || 'VERIFICATION REQUIRED')} · ${esc(e.date || 'VERIFICATION REQUIRED')} · ${esc(e.sourceClassification || 'VERIFICATION REQUIRED')}<br>${e.url ? esc(e.url) : 'VERIFICATION REQUIRED'}<br><b>Claim:</b> ${esc(e.claim)}</p>`).join('')}
     <h3>DOCUMENTED PRESSURE POINT</h3><p><b>Portfolio position:</b> ${esc(chit.pressurePoint?.portfolioPosition)}</p><p><b>Target position/action:</b> ${esc(chit.pressurePoint?.targetPositionAction)}</p><p><b>Conflict/contradiction:</b> ${esc(chit.pressurePoint?.conflict)}</p><p><b>Agenda relevance:</b> ${esc(chit.pressurePoint?.agendaRelevance)}</p>

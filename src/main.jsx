@@ -6,6 +6,7 @@ import { loadStoredKey, saveApiKey, clearStoredKey } from './state.js';
 import { generateFollowUp, generateMission } from './generation.js';
 import { validateMissionInputs } from './validation.js';
 import { downloadBrief } from './export.js';
+import { renderMarkdownBold } from './format.js';
 
 const defaultSliders = { aggression: 0, controversy: 0, diplomacy: 0, length: 0 };
 const modes = [
@@ -109,7 +110,8 @@ function ChitCard({ chit, number, onCopy, onExport, onFollowUp }) {
     <div className="chitHead"><b>CHIT #{String(number).padStart(2, '0')}</b><span>TARGET: {chit.target}</span><em>{chit.pressureProfile?.classification}</em></div>
     <section><h3>OBJECTIVE</h3><p><b>TARGET:</b> {chit.target}</p></section>
     <section className="pressure"><h3>PRESSURE PROFILE</h3><p>Aggression {chit.pressureProfile?.aggression}% · Controversy {chit.pressureProfile?.controversy}% · Diplomacy {chit.pressureProfile?.diplomacy}% · Length {chit.pressureProfile?.length}%</p><strong>PRESSURE SCORE: {chit.pressureProfile?.score}/100</strong></section>
-    <section><h3>POI</h3><blockquote>“{chit.poi}”</blockquote></section>
+    <section><h3>POI</h3><blockquote dangerouslySetInnerHTML={{ __html: `“${renderMarkdownBold(chit.poi)}”` }} /></section>
+    <section className="metrics"><span>{chit.wordCount} WORDS</span><span>~{chit.estimatedSeconds} SEC</span></section>
     <section><h3>LEGAL / POLICY FOUNDATION</h3><p>{chit.legalPolicyFoundation}</p></section>
     <section><h3>EVIDENCE</h3>{(chit.evidence || []).map((e, idx) => <div className="evidence" key={`${e.url}-${idx}`}><b>Source:</b> {e.title || e.source}<br /><b>Organization:</b> {e.organization || e.publication || 'VERIFICATION REQUIRED'}<br /><b>Date:</b> {e.date || 'VERIFICATION REQUIRED'}<br /><b>URL:</b> {e.url ? <a href={e.url} target="_blank" rel="noreferrer">{e.url}</a> : 'VERIFICATION REQUIRED'}<br /><b>Classification:</b> {e.sourceClassification || e.status || 'VERIFICATION REQUIRED'}<br /><b>Claim:</b> {e.claim}</div>)}</section>
     <section><h3>DOCUMENTED PRESSURE POINT</h3><p><b>Portfolio position:</b> {chit.pressurePoint?.portfolioPosition}</p><p><b>Target position/action:</b> {chit.pressurePoint?.targetPositionAction}</p><p><b>Conflict/contradiction:</b> {chit.pressurePoint?.conflict}</p><p><b>Why this matters to the agenda:</b> {chit.pressurePoint?.agendaRelevance}</p></section>
