@@ -26,7 +26,7 @@ export const CHITFORGE_RESPONSE_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['target', 'question', 'legalFoundation', 'evidence', 'documentedIssue', 'classification', 'tacticalImpact', 'followUp'],
+        required: ['target', 'question', 'legalFoundation', 'evidence', 'documentedIssue', 'classification', 'classificationReason', 'tacticalImpact', 'followUp'],
         properties: {
           target: { type: 'string', description: 'Target country or delegation.' },
           question: { type: 'string', description: 'The concise MUN Point of Information question.' },
@@ -35,12 +35,13 @@ export const CHITFORGE_RESPONSE_SCHEMA = {
             type: 'array',
             items: {
               type: 'object',
-              required: ['claim', 'sourceName', 'sourceUrl'],
-              properties: { claim: { type: 'string' }, sourceName: { type: 'string' }, sourceUrl: { type: 'string' } },
+              required: ['sourceName', 'organization', 'publicationDate', 'url', 'claimSupported', 'sourceType', 'confidence'],
+              properties: { claim: { type: 'string' }, sourceName: { type: 'string' }, organization: { type: 'string' }, publicationDate: { type: 'string' }, url: { type: 'string' }, claimSupported: { type: 'string' }, sourceType: { type: 'string' }, confidence: { type: 'number' }, sourceUrl: { type: 'string' } },
             },
           },
           documentedIssue: { type: 'string' },
           classification: { type: 'string' },
+          classificationReason: { type: 'string' },
           tacticalImpact: { type: 'string' },
           followUp: { type: 'string', nullable: true },
         },
@@ -50,7 +51,18 @@ export const CHITFORGE_RESPONSE_SCHEMA = {
 };
 
 export const FOLLOW_UP_RESPONSE_SCHEMA = { type: 'object', required: ['expectedEvasion', 'question'], properties: { expectedEvasion: { type: 'string' }, question: { type: 'string' } } };
-export const FACT_CHECK_RESPONSE_SCHEMA = { type: 'object', required: ['overallStatus', 'confidence', 'claims', 'legalAssessment'], properties: { overallStatus: { type: 'string' }, confidence: { type: 'number' }, claims: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, status: { type: 'string' }, reason: { type: 'string' }, sourceRelevant: { type: 'boolean' } } } }, legalAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } } } };
+export const FACT_CHECK_RESPONSE_SCHEMA = {
+  type: 'object',
+  required: ['overallStatus', 'confidence', 'claims', 'legalAssessment', 'classificationAssessment'],
+  properties: {
+    overallStatus: { type: 'string' },
+    confidence: { type: 'number' },
+    claims: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, status: { type: 'string' }, source: { type: 'string' }, reason: { type: 'string' }, sourceRelevant: { type: 'boolean' } } } },
+    legalAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } },
+    classificationAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } },
+  },
+};
+
 
 export function modelId(model) { return (model.name || model.id || '').replace(/^models\//, ''); }
 export function displayModelName(model) { return model.displayName || model.display_name || modelId(model).replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }

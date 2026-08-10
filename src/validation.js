@@ -1,6 +1,15 @@
 import { countWords, speakingSeconds, stripMarkdown } from './format.js';
 
 const validationTests = ['Agenda relevance', 'Portfolio alignment', 'Target relevance', 'Evidence exists', 'No fabricated citation', 'Legal classification accurate', 'POI usable in MUN', 'Aggression matches slider', 'Controversy matches slider', 'Diplomacy matches slider', 'Length matches slider', 'Word count calculated', 'Speaking time calculated', 'Important phrases emphasized', 'No ceremonial opening', 'Simple English', 'Direct question', 'Strong pressure point', 'Distinct tactical purpose'];
+
+export const POI_TYPES = ['AUTO', 'POLICY CONTRADICTION', 'LEGAL ERROR', 'LEGAL TRAP', 'COMMITMENT CONTRADICTION', 'EVIDENCE TRAP', 'ACCOUNTABILITY', 'FINANCIAL PRESSURE', 'IMPLEMENTATION FAILURE', 'VOTING CONTRADICTION', 'TREATY / OBLIGATION', 'HISTORICAL CONTRADICTION', 'CONTROVERSY', 'CUSTOM'];
+const TYPE_ALIASES = new Map([['ACCOUNTABILITY QUESTION', 'ACCOUNTABILITY'], ['COMMITMENT TRAP', 'COMMITMENT CONTRADICTION'], ['IMPLEMENTATION CONTRADICTION', 'IMPLEMENTATION FAILURE'], ['LEGAL PRESSURE', 'LEGAL TRAP'], ['TACTICAL TRAP', 'EVIDENCE TRAP'], ['HIGH PRESSURE', 'ACCOUNTABILITY'], ['MODERATE PRESSURE', 'ACCOUNTABILITY'], ['LOW PRESSURE', 'ACCOUNTABILITY']]);
+export function normalizeClassification(value) {
+  const raw = String(value || 'AUTO').trim().toUpperCase().replace(/[\s_-]+/g, ' ');
+  const normalized = raw === 'TREATY OBLIGATION' ? 'TREATY / OBLIGATION' : raw;
+  return POI_TYPES.includes(normalized) ? normalized : (TYPE_ALIASES.get(normalized) || 'ACCOUNTABILITY');
+}
+
 const ceremonial = /^(would|could|may|can)\s+(the\s+)?(distinguished|honou?rable|esteemed|delegate|delegation|representative)|^would\s+the\s+delegation\s+kindly/i;
 
 export function validateMissionInputs({ agenda, portfolio, apiKey, poiCount }) {
@@ -18,11 +27,11 @@ export function calculatePressureScore(sliders, evidenceStrength = 55, contradic
 
 export function classifyPressure(score, types = []) {
   if (types.some((type) => /legal/i.test(type)) && score >= 70) return 'LEGAL TRAP';
-  if (score >= 86) return 'MAXIMUM PRESSURE';
-  if (score >= 71) return 'HIGH PRESSURE';
-  if (score >= 51) return 'HIGH PRESSURE';
-  if (score >= 26) return 'MODERATE PRESSURE';
-  return 'LOW PRESSURE';
+  if (score >= 86) return 'EVIDENCE TRAP';
+  if (score >= 71) return 'ACCOUNTABILITY';
+  if (score >= 51) return 'ACCOUNTABILITY';
+  if (score >= 26) return 'ACCOUNTABILITY';
+  return 'ACCOUNTABILITY';
 }
 
 function parseJson(raw) {
@@ -39,16 +48,16 @@ export function normalizeMission(raw, ctx) {
     validateRawMissionShape(parsed, ctx.poiCount);
     const chits = flattenChits(parsed).map((chit) => normalizeChit(chit, ctx));
     return {
-      researchSummary: parsed.research_summary || parsed.researchSummary || 'VERIFICATION REQUIRED',
-      portfolioProfile: parsed.portfolioProfile || { summary: parsed.research_summary || 'VERIFICATION REQUIRED', interests: [], sources: [] },
-      portfolioAlignment: parsed.portfolio_alignment || parsed.portfolioAlignment || 'VERIFICATION REQUIRED',
+      researchSummary: parsed.research_summary || parsed.researchSummary || 'MANUAL VERIFICATION',
+      portfolioProfile: parsed.portfolioProfile || { summary: parsed.research_summary || 'MANUAL VERIFICATION', interests: [], sources: [] },
+      portfolioAlignment: parsed.portfolio_alignment || parsed.portfolioAlignment || 'MANUAL VERIFICATION',
       recommendedTargets: parsed.recommendedTargets || (parsed.targets || []).map((t) => ({ name: t.country, iso: t.iso, reason: t.reason_for_targeting })).filter((t) => t.name),
       requestedPoiCount: ctx.poiCount,
       chits,
     };
   } catch (error) {
     if (typeof raw === 'string') throw error;
-    return { researchSummary: 'VERIFICATION REQUIRED', portfolioProfile: { summary: 'VERIFICATION REQUIRED', interests: [], sources: [] }, portfolioAlignment: 'VERIFICATION REQUIRED', recommendedTargets: [], requestedPoiCount: ctx.poiCount, chits: [] };
+    return { researchSummary: 'MANUAL VERIFICATION', portfolioProfile: { summary: 'MANUAL VERIFICATION', interests: [], sources: [] }, portfolioAlignment: 'MANUAL VERIFICATION', recommendedTargets: [], requestedPoiCount: ctx.poiCount, chits: [] };
   }
 }
 
@@ -66,10 +75,10 @@ function flattenChits(parsed) {
     legalPolicyFoundation: point.legal_foundation || point.legalPolicyFoundation,
     evidence: point.evidence,
     pressurePoint: {
-      portfolioPosition: parsed.portfolio_alignment || 'VERIFICATION REQUIRED',
-      targetPositionAction: point.target_position_action || point.documented_contradiction || 'VERIFICATION REQUIRED',
-      conflict: point.documented_contradiction || 'VERIFICATION REQUIRED',
-      agendaRelevance: target.reason_for_targeting || point.agenda_relevance || 'VERIFICATION REQUIRED',
+      portfolioPosition: parsed.portfolio_alignment || 'MANUAL VERIFICATION',
+      targetPositionAction: point.target_position_action || point.documented_contradiction || 'MANUAL VERIFICATION',
+      conflict: point.documented_contradiction || 'MANUAL VERIFICATION',
+      agendaRelevance: target.reason_for_targeting || point.agenda_relevance || 'MANUAL VERIFICATION',
     },
     legalTacticalTypes: [point.classification].filter(Boolean),
     tacticalImpact: point.tactical_impact,
@@ -77,14 +86,14 @@ function flattenChits(parsed) {
     agendaRelevanceScore: point.agendaRelevanceScore,
     portfolioAlignmentScore: point.portfolioAlignmentScore,
     legalRelevanceScore: point.legalRelevanceScore,
-    followUp: point.follow_up ? { expectedEvasion: point.expected_evasion || 'VERIFICATION REQUIRED', question: point.follow_up } : null,
+    followUp: point.follow_up ? { expectedEvasion: point.expected_evasion || 'MANUAL VERIFICATION', question: point.follow_up } : null,
   })));
 }
 
 export function normalizeChit(chit, ctx) {
-  const evidence = Array.isArray(chit.evidence) && chit.evidence.length ? chit.evidence.map((e) => ({ ...e, url: e.url || e.source_url || '', title: e.title || e.source_name || e.source || 'VERIFICATION REQUIRED', claim: e.claim || 'VERIFICATION REQUIRED' })) : [{ title: 'Source verification required', organization: 'VERIFICATION REQUIRED', date: 'VERIFICATION REQUIRED', url: '', sourceClassification: 'OTHER', claim: 'No source was provided for this claim.' }];
+  const evidence = Array.isArray(chit.evidence) && chit.evidence.length ? chit.evidence.map((e) => ({ ...e, url: e.url || e.source_url || '', title: e.title || e.source_name || e.source || 'MANUAL VERIFICATION', claim: e.claim || 'MANUAL VERIFICATION' })) : [{ title: 'Source verification required', organization: 'MANUAL VERIFICATION', date: 'MANUAL VERIFICATION', url: '', sourceClassification: 'OTHER', claim: 'No source was provided for this claim.' }];
   const evidenceStrength = evidence.some((e) => e.url && /PRIMARY/i.test(e.sourceClassification || '')) ? 85 : evidence.some((e) => e.url && !/wikipedia/i.test(e.url)) ? 65 : 15;
-  const legalTypes = Array.isArray(chit.legalTacticalTypes) && chit.legalTacticalTypes.length ? chit.legalTacticalTypes : [chit.classification || 'POLICY CONTRADICTION'];
+  const legalTypes = Array.isArray(chit.legalTacticalTypes) && chit.legalTacticalTypes.length ? chit.legalTacticalTypes : [normalizeClassification(chit.classification || 'AUTO')];
   const wordCount = countWords(chit.poi || '');
   const estimatedSeconds = speakingSeconds(wordCount);
   const score = calculatePressureScore(ctx.sliders, evidenceStrength, Number(chit.contradictionStrength || 60), Number(chit.agendaRelevanceScore || 70), Number(chit.portfolioAlignmentScore || 70), Number(chit.legalRelevanceScore || 60));
@@ -94,15 +103,15 @@ export function normalizeChit(chit, ctx) {
     reasonForTargeting: chit.reasonForTargeting || chit.reason_for_targeting || 'Agenda-relevant pressure point identified by Gemini.',
     title: chit.title || 'TACTICAL PRESSURE POINT',
     pressureProfile: { ...ctx.sliders, score, classification: chit.pressureProfile?.classification || classifyPressure(score, legalTypes) },
-    poi: chit.poi || 'VERIFICATION REQUIRED: No usable POI was generated.',
+    poi: chit.poi || 'MANUAL VERIFICATION: No usable POI was generated.',
     normalizedPoi: normalizePoiText(chit.poi || ''),
     wordCount,
     estimatedSeconds,
-    legalPolicyFoundation: chit.legalPolicyFoundation || chit.legal_foundation || 'VERIFICATION REQUIRED',
+    legalPolicyFoundation: chit.legalPolicyFoundation || chit.legal_foundation || 'MANUAL VERIFICATION',
     evidence,
-    pressurePoint: chit.pressurePoint || { portfolioPosition: 'VERIFICATION REQUIRED', targetPositionAction: 'VERIFICATION REQUIRED', conflict: chit.documented_contradiction || 'VERIFICATION REQUIRED', agendaRelevance: 'VERIFICATION REQUIRED' },
+    pressurePoint: chit.pressurePoint || { portfolioPosition: 'MANUAL VERIFICATION', targetPositionAction: 'MANUAL VERIFICATION', conflict: chit.documented_contradiction || 'MANUAL VERIFICATION', agendaRelevance: 'MANUAL VERIFICATION' },
     legalTacticalTypes: legalTypes,
-    tacticalImpact: chit.tacticalImpact || chit.tactical_impact || 'VERIFICATION REQUIRED',
+    tacticalImpact: chit.tacticalImpact || chit.tactical_impact || 'MANUAL VERIFICATION',
     followUp: ctx.includeFollowUp ? (chit.followUp || (chit.expected_evasion || chit.follow_up ? { expectedEvasion: chit.expected_evasion, question: chit.follow_up } : null)) : null,
   };
   base.validation = buildValidation(base, chit.validation || []);
@@ -145,14 +154,14 @@ function buildValidation(chit, supplied) {
     if (test === 'Important phrases emphasized') pass = (chit.poi.match(/\*\*.+?\*\*/g) || []).length >= 1 && (chit.poi.match(/\*\*.+?\*\*/g) || []).length <= 4;
     if (test === 'Word count calculated') pass = Number.isFinite(chit.wordCount) && chit.wordCount > 0;
     if (test === 'Speaking time calculated') pass = Number.isFinite(chit.estimatedSeconds) && chit.estimatedSeconds > 0;
-    if (!pass) notes = 'VERIFICATION REQUIRED or revise before committee use.';
+    if (!pass) notes = 'MANUAL VERIFICATION or revise before committee use.';
     return { test, pass, notes };
   });
 }
 
 export function validateMissionResponse(mission, { targetingMode, poiCount }) {
   const problems = [];
-  if (!mission.portfolioProfile?.summary || /VERIFICATION REQUIRED/i.test(mission.portfolioProfile.summary)) problems.push('Portfolio intelligence profile is missing or unverifiable');
+  if (!mission.portfolioProfile?.summary || /MANUAL VERIFICATION/i.test(mission.portfolioProfile.summary)) problems.push('Portfolio intelligence profile is missing or unverifiable');
   if (targetingMode !== 'manual' && !mission.chits.length) problems.push('Automatic/hybrid zero-target generation returned no chits');
   if (targetingMode !== 'manual' && mission.chits.length < poiCount) problems.push(`Gemini returned ${mission.chits.length}/${poiCount} requested POIs`);
   if (mission.chits.length > poiCount) problems.push(`Gemini returned more than ${poiCount} requested POIs`);
