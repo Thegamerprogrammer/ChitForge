@@ -5,11 +5,11 @@ const smootherstep = (x) => x * x * x * (x * (x * 6 - 15) + 10);
 const mix = (a, b, t) => a * (1 - t) + b * t;
 
 export const LIQUID_GLASS_PROFILES = {
-  panel: { width: 512, height: 320, bezelWidth: 48, glassThickness: 44, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 8, specularOpacity: 0.42, blurLevel: 0.65 },
-  button: { width: 220, height: 72, bezelWidth: 24, glassThickness: 27, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 9, specularOpacity: 0.48, blurLevel: 0.2 },
-  input: { width: 380, height: 64, bezelWidth: 22, glassThickness: 22, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 5, specularOpacity: 0.22, blurLevel: 0.9 },
-  slider: { width: 360, height: 64, bezelWidth: 22, glassThickness: 28, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 7, specularOpacity: 0.4, blurLevel: 0 },
-  switch: { width: 78, height: 44, bezelWidth: 20, glassThickness: 25, refractiveIndex: 1.5, surface: 'lip', lightAngle: -60, specularSaturation: 6, specularOpacity: 0.5, blurLevel: 0.2 },
+  panel: { width: 384, height: 240, bezelWidth: 34, glassThickness: 24, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 2.1, specularOpacity: 0.12, blurLevel: 1.1 },
+  button: { width: 220, height: 60, bezelWidth: 18, glassThickness: 15, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 2.2, specularOpacity: 0.11, blurLevel: 0.8 },
+  input: { width: 320, height: 56, bezelWidth: 16, glassThickness: 13, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 1.5, specularOpacity: 0.08, blurLevel: 1.2 },
+  slider: { width: 320, height: 52, bezelWidth: 16, glassThickness: 14, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 1.6, specularOpacity: 0.08, blurLevel: 0.8 },
+  switch: { width: 68, height: 38, bezelWidth: 14, glassThickness: 13, refractiveIndex: 1.5, surface: 'lip', lightAngle: -60, specularSaturation: 1.7, specularOpacity: 0.09, blurLevel: 0.8 },
 };
 
 export function surfaceHeight(x, surface = 'convex-squircle') {

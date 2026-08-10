@@ -204,9 +204,7 @@ const GlassRange = React.memo(function GlassRange({ name, value, info, onCommit 
     const nextValue = Number(event.currentTarget.value);
     setDisplayValue(nextValue);
     updateVisual(nextValue);
-    cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(() => onCommit(name, nextValue));
-  }, [name, onCommit, updateVisual]);
+  }, [updateVisual]);
 
   const commitNow = useCallback((event) => {
     const nextValue = Number(event.currentTarget.value);
@@ -221,7 +219,7 @@ const GlassRange = React.memo(function GlassRange({ name, value, info, onCommit 
     {info && <small>{info.lines}<br />{info.words}</small>}
     <div className="glassSliderShell" ref={shellRef} style={{ '--slider-ratio': displayValue / 100, '--value': `${displayValue}%` }}>
       <i className="glassSliderFill" />
-      <input type="range" min="0" max="100" value={displayValue} onInput={handleInput} onChange={handleInput} onPointerUp={commitNow} onKeyUp={commitNow} onBlur={commitNow} />
+      <input type="range" min="0" max="100" value={displayValue} onInput={handleInput} onChange={commitNow} onPointerUp={commitNow} onKeyUp={commitNow} onBlur={commitNow} />
     </div>
   </label>;
 });
