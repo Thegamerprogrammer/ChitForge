@@ -53,6 +53,17 @@ npm run preview
 
 ChitForge is a static frontend. Deploy the generated `dist/` directory to any static host, such as GitHub Pages, Netlify, Vercel, Cloudflare Pages, or an internal static server.
 
+### GitHub Pages
+
+This repository includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml` that builds the Vite app and publishes `dist/` to GitHub Pages.
+
+1. Push the repository to GitHub.
+2. In the repository settings, open **Pages**.
+3. Set **Build and deployment** → **Source** to **GitHub Actions**.
+4. Push to the `main` branch, or run the **Deploy GitHub Pages** workflow manually from the **Actions** tab.
+
+The Vite `base` path is set to `./` so the built assets work from a project Pages URL such as `https://<user>.github.io/<repo>/` as well as from a custom domain. The `public/.nojekyll` file is copied into the build output so GitHub Pages serves Vite assets without Jekyll processing.
+
 ## Gemini API Key Setup
 
 1. Create a Gemini API key in Google AI Studio.
