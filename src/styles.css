@@ -586,3 +586,24 @@ button::after, .backgroundPicker::after, .sourceLink::after {
 @media (prefers-reduced-motion: reduce) { .hero::after, button::after, .backgroundPicker::after, .sourceLink::after { animation: none; } }
 /* Opacity control adjusts glass fill only; text stays fully opaque for readability. */
 .hero, .panel, .chit, .poiWindow, .mapWrap { opacity: 1; }
+
+/* Use the supplied title-card artwork instead of live shiny title text. */
+.heroTitleBlock { min-width: 0; }
+.titleCard {
+  margin: 0 0 10px;
+  line-height: 0;
+  text-shadow: none !important;
+}
+.titleCard img {
+  display: block;
+  width: min(620px, 100%);
+  max-height: 210px;
+  object-fit: contain;
+  object-position: left center;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 14px 22px rgba(0,0,0,.36));
+}
+.titleCard::after { content: none; }
+@media (max-width: 760px) {
+  .titleCard img { width: min(100%, 520px); max-height: 150px; }
+}

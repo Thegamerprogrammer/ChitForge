@@ -136,7 +136,7 @@ function App() {
     <LiquidGlassFilters />
     <div className="ambientBackdrop" style={customBackground ? { '--custom-background': `url(${customBackground})` } : undefined} />
     <header className="hero glass-panel">
-      <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
+      <div className="heroTitleBlock"><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1 className="titleCard"><img src="/assets/chitforge-title.svg" alt="ChitForge" /></h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
       <div className="heroActions"><label className="backgroundPicker">Custom background<input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); const nextUrl = URL.createObjectURL(file); customBackgroundRef.current = nextUrl; setCustomBackground(nextUrl); }} /></label><button onClick={() => { if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); customBackgroundRef.current = ''; setCustomBackground(''); }} disabled={!customBackground}>Reset Background</button><button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button></div>
     </header>
     <main className="layout">
