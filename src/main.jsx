@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LIQUID_GLASS_PROFILES, createLiquidGlassMap } from './liquidGlass.js';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { WorldMap } from './map.jsx';
@@ -17,6 +18,7 @@ const modes = [
   ['selected_only', 'Selected Targets Only', 'Use only countries selected on the real world map.'],
 ];
 const progressStages = ['INITIALIZING', 'READING AGENDA', 'ANALYZING PORTFOLIO', 'ANALYZING FOREIGN POLICY', 'MAPPING TARGETS', 'RESEARCHING EVIDENCE', 'ANALYZING LEGAL FRAMEWORKS', 'GENERATING POIs', 'VALIDATING STRUCTURE', 'FACT CHECK PASS 1', 'FACT CHECK PASS 2', 'CALCULATING PRESSURE', 'FINALIZING CHITS', 'PREPARING DOCX'];
+const MemoWorldMap = React.memo(WorldMap);
 
 function App() {
   const stored = useMemo(() => loadStoredKey(), []);
@@ -40,6 +42,19 @@ function App() {
   const [modelCatalog, setModelCatalog] = useState(null);
   const [modelInfo, setModelInfo] = useState(null);
   const [modelLoading, setModelLoading] = useState(false);
+  const [customBackground, setCustomBackground] = useState('');
+  const customBackgroundRef = useRef('');
+  const sliderCommitFrame = useRef(0);
+  useLiquidGlassResizeObserver();
+
+  const commitSlider = useCallback((key, value) => {
+    cancelAnimationFrame(sliderCommitFrame.current);
+    sliderCommitFrame.current = requestAnimationFrame(() => {
+      setSliders((current) => current[key] === value ? current : { ...current, [key]: value });
+    });
+  }, []);
+
+  useEffect(() => () => cancelAnimationFrame(sliderCommitFrame.current), []);
 
   const updateForm = (key, value) => {
     const next = { ...form, [key]: value };
@@ -113,9 +128,11 @@ function App() {
   };
 
   return <>
-    <header className="hero">
+    <LiquidGlassFilters />
+    <div className="ambientBackdrop" style={customBackground ? { '--custom-background': `url(${customBackground})` } : undefined} />
+    <header className="hero glass-panel">
       <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
-      <button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button>
+      <div className="heroActions"><label className="backgroundPicker">Custom background<input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); const nextUrl = URL.createObjectURL(file); customBackgroundRef.current = nextUrl; setCustomBackground(nextUrl); }} /></label><button onClick={() => { if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); customBackgroundRef.current = ''; setCustomBackground(''); }} disabled={!customBackground}>Reset Background</button><button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button></div>
     </header>
     <main className="layout">
       <section className="panel controls">
@@ -124,12 +141,12 @@ function App() {
         <label>Agenda / Topic<textarea value={form.agenda} onChange={(e) => updateForm('agenda', e.target.value)} placeholder="e.g. Sovereign debt restructuring and development finance" /></label>
         <label>Portfolio / Country<input value={form.portfolio} onChange={(e) => updateForm('portfolio', e.target.value)} placeholder="e.g. Indonesia or IDN" /></label>
         <label>Gemini API Key<div className="keyRow"><input type={showKey ? 'text' : 'password'} autoComplete="off" value={form.apiKey} onChange={(e) => updateForm('apiKey', e.target.value)} placeholder="Stored for this session by default" /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button></div></label>
-        <div className="row"><label className="check"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /> Save beyond this session</label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear Key</button></div>
+        <div className="row"><label className="check switchField"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /><span className="glassSwitch" aria-hidden="true"><i /></span><span>Save beyond this session</span></label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear Key</button></div>
 
         <h2>AI Model</h2>
         <div className="modelBox" onFocus={() => !modelCatalog && form.apiKey.trim() && refreshModels(false)}>
           <select value={modelMode} onChange={(e) => setModelMode(e.target.value)}>
-            <option value={MODEL_SELECTION_MODES.BEST}>✨ Best Available</option>
+            <option value={MODEL_SELECTION_MODES.BEST}>Best Available</option>
             <option value={MODEL_SELECTION_MODES.ROTATION}>Smart Rotation</option>
             <option value={MODEL_SELECTION_MODES.MANUAL}>Manual</option>
           </select>
@@ -142,7 +159,7 @@ function App() {
         <h2>Targeting Mode</h2>
         <div className="modes">{modes.map(([id, label, help]) => <label key={id} className="mode"><input type="radio" checked={mode === id} onChange={() => setMode(id)} /> <b>{label}</b><small>{help}</small></label>)}</div>
         <label>POIs to Generate<input type="number" min="1" max="20" value={poiCount} onChange={(e) => setPoiCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
-        <label className="check"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /> Generate Follow-Up</label>
+        <label className="check switchField"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /><span className="glassSwitch" aria-hidden="true"><i /></span><span>Generate Follow-Up</span></label>
         <h2>POI Type</h2>
         <div className="typeGrid" role="group" aria-label="POI type selection">{POI_TYPES.map((type) => <label key={type} className={`typeChip ${poiTypes.includes(type) ? 'active' : ''}`}>
           <input type="checkbox" checked={poiTypes.includes(type)} onChange={() => setPoiTypes((current) => {
@@ -154,17 +171,60 @@ function App() {
         </label>)}</div>
 
         <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'GLOBAL RESEARCH ENABLED unless Selected Targets Only is used.'}</div>
-        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>; })}
+        {Object.keys(sliders).map((key) => <GlassRange key={key} name={key} value={sliders[key]} info={key === 'length' ? lengthInfo(sliders.length) : null} onCommit={commitSlider} />)}
         <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing Tactical POIs…' : 'Generate Tactical POI Array'}</button>
         {error && <ErrorBox error={error} />}
       </section>
-      <section className="panel mapPanel"><h2>Real World Target Map</h2><WorldMap selected={selected} setSelected={setSelected} portfolio={form.portfolio} /></section>
+      <section className="panel mapPanel"><h2>Real World Target Map</h2><MemoWorldMap selected={selected} setSelected={setSelected} portfolio={form.portfolio} /></section>
       <aside className="panel queue glass-sidebar"><details className="settingsPanel" open><summary>Generation Settings</summary><div className="settingsGrid"><span>POI Count<b>{poiCount}</b></span><span>POI Type<b>{poiTypes.join(', ')}</b></span><span>Target Mode<b>{mode}</b></span><span>Follow-ups<b>{includeFollowUp ? 'ON' : 'OFF'}</b></span><span>Model<b>{modelInfo?.model?.displayName || modelMode}</b></span><span>Aggression<b>{sliders.aggression}</b></span><span>Controversy<b>{sliders.controversy}</b></span><span>Diplomacy<b>{sliders.diplomacy}</b></span><span>Length<b>{sliders.length}</b></span></div></details><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} activity={activity} />}</aside>
     </main>
     {portfolioProfile && <PortfolioIntel profile={portfolioProfile} />}
     {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong>{modelInfo?.model && <strong>MODEL: {modelInfo.model.displayName}</strong>}<strong>FACT CHECK: 2-PASS</strong></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
   </>;
 }
+
+
+const GlassRange = React.memo(function GlassRange({ name, value, info, onCommit }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  const shellRef = useRef(null);
+  const frameRef = useRef(0);
+
+  useEffect(() => {
+    shellRef.current?.style.setProperty('--slider-ratio', String(value / 100));
+    shellRef.current?.style.setProperty('--value', `${value}%`);
+  }, [value]);
+
+  const updateVisual = useCallback((nextValue) => {
+    const ratio = nextValue / 100;
+    shellRef.current?.style.setProperty('--slider-ratio', String(ratio));
+    shellRef.current?.style.setProperty('--value', `${nextValue}%`);
+  }, []);
+
+  const handleInput = useCallback((event) => {
+    const nextValue = Number(event.currentTarget.value);
+    setDisplayValue(nextValue);
+    updateVisual(nextValue);
+    cancelAnimationFrame(frameRef.current);
+    frameRef.current = requestAnimationFrame(() => onCommit(name, nextValue));
+  }, [name, onCommit, updateVisual]);
+
+  const commitNow = useCallback((event) => {
+    const nextValue = Number(event.currentTarget.value);
+    cancelAnimationFrame(frameRef.current);
+    onCommit(name, nextValue);
+  }, [name, onCommit]);
+
+  useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
+
+  return <label className="slider glassSlider">
+    <span>{name}<b>{displayValue}%</b></span>
+    {info && <small>{info.lines}<br />{info.words}</small>}
+    <div className="glassSliderShell" ref={shellRef} style={{ '--slider-ratio': displayValue / 100, '--value': `${displayValue}%` }}>
+      <i className="glassSliderFill" />
+      <input type="range" min="0" max="100" value={displayValue} onInput={handleInput} onChange={handleInput} onPointerUp={commitNow} onKeyUp={commitNow} onBlur={commitNow} />
+    </div>
+  </label>;
+});
 
 function ModelStatus({ modelInfo, modelCatalog, modelMode }) {
   const active = modelInfo?.model || modelCatalog?.compatible?.[0];
@@ -209,4 +269,44 @@ function ChitCard({ chit, number, onCopy, onFollowUp, onRegenerate }) {
   </article>;
 }
 
+
+
+function useLiquidGlassResizeObserver() {
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    let frame = 0;
+    const update = (entries) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        entries.forEach((entry) => {
+          const { width, height } = entry.contentRect;
+          entry.target.style.setProperty('--glass-width', `${Math.round(width)}px`);
+          entry.target.style.setProperty('--glass-height', `${Math.round(height)}px`);
+        });
+      });
+    };
+    const observer = new ResizeObserver(update);
+    document.querySelectorAll('.hero, .panel, .chit, .poiWindow, .mapWrap, .glassSliderShell, .glassSwitch').forEach((node) => observer.observe(node));
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, []);
+}
+
+function LiquidGlassFilters() {
+  const filters = useMemo(() => {
+    if (typeof document === 'undefined') return [];
+    return Object.entries(LIQUID_GLASS_PROFILES).map(([name, profile]) => [`liquid-glass-filter-${name}`, createLiquidGlassMap(profile)]);
+  }, []);
+
+  return <svg className="liquidFilterSvg" width="0" height="0" aria-hidden="true" focusable="false" colorInterpolationFilters="sRGB">
+    <defs>{filters.map(([id, map]) => <filter key={id} id={id} x="-20%" y="-20%" width="140%" height="140%" filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">
+      <feImage href={map.displacementHref} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="displacement_map" />
+      <feDisplacementMap in="SourceGraphic" in2="displacement_map" scale={map.scale} xChannelSelector="R" yChannelSelector="G" result="refracted" />
+      <feImage href={map.specularHref} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="specular_map" />
+      <feGaussianBlur in="specular_map" stdDeviation={map.blurLevel} result="specular_soft" />
+      <feBlend in="refracted" in2="specular_soft" mode="screen" />
+    </filter>)}</defs>
+  </svg>;
+}
+
 createRoot(document.getElementById('root')).render(<App />);
+
