@@ -1,4 +1,25 @@
-export const state={agenda:'',committee:'',portfolio:'',apiKey:'',rememberKey:false,selected:new Map(),sliders:{controversy:0,aggression:0,diplomacy:0,length:0},chits:[],busy:false};
-export const loadKey=()=>{const remembered=localStorage.getItem('chitforgeRememberKey')==='true';state.rememberKey=remembered;state.apiKey=(remembered?localStorage:sessionStorage).getItem('chitforgeGeminiKey')||''};
-export const saveKey=key=>{state.apiKey=key;if(state.rememberKey){localStorage.setItem('chitforgeGeminiKey',key);localStorage.setItem('chitforgeRememberKey','true');sessionStorage.removeItem('chitforgeGeminiKey')}else{sessionStorage.setItem('chitforgeGeminiKey',key);localStorage.removeItem('chitforgeGeminiKey');localStorage.setItem('chitforgeRememberKey','false')}};
-export const clearKey=()=>{state.apiKey='';sessionStorage.removeItem('chitforgeGeminiKey');localStorage.removeItem('chitforgeGeminiKey');localStorage.removeItem('chitforgeRememberKey')};
+const KEY = 'chitforgeGeminiKey';
+const REMEMBER = 'chitforgeRememberKey';
+
+export function loadStoredKey() {
+  const rememberKey = localStorage.getItem(REMEMBER) === 'true';
+  return { rememberKey, key: (rememberKey ? localStorage : sessionStorage).getItem(KEY) || '' };
+}
+
+export function saveApiKey(key, rememberKey) {
+  if (rememberKey) {
+    localStorage.setItem(KEY, key);
+    localStorage.setItem(REMEMBER, 'true');
+    sessionStorage.removeItem(KEY);
+  } else {
+    sessionStorage.setItem(KEY, key);
+    localStorage.removeItem(KEY);
+    localStorage.setItem(REMEMBER, 'false');
+  }
+}
+
+export function clearStoredKey() {
+  sessionStorage.removeItem(KEY);
+  localStorage.removeItem(KEY);
+  localStorage.removeItem(REMEMBER);
+}
