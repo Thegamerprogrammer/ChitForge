@@ -1,11 +1,12 @@
-import { callGemini, GeminiError } from './gemini.js';
+import { callGemini, GeminiError, CHITFORGE_RESPONSE_SCHEMA, FOLLOW_UP_RESPONSE_SCHEMA } from './gemini.js';
 import { normalizeMission, validateMissionResponse, findDuplicatePoiIndexes } from './validation.js';
 
-export async function generateMission({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount, onProgress }) {
+export async function generateMission({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount, onProgress, modelSelection }) {
   onProgress?.({ stage: 'RESEARCHING PORTFOLIO', detail: 'Building Portfolio Intelligence Profile prompt...', done: 0, total: poiCount });
   const prompt = buildMissionPrompt({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount });
   onProgress?.({ stage: 'ANALYZING TARGETS', detail: 'Researching agenda-relevant targets and pressure points...', done: 0, total: poiCount });
-  let text = await callGemini(form.apiKey, prompt);
+  let response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA, onModelStatus: (status) => onProgress?.({ stage: 'ANALYZING TARGETS', detail: `Using ${status.model.displayName} for ${status.mode}.`, done: 0, total: poiCount }) });
+  let text = response.text;
   let mission = normalizeMission(text, { sliders, includeFollowUp, poiCount });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const problems = validateMissionResponse(mission, { selectedTargets, targetingMode, includeFollowUp, sliders, poiCount });
@@ -13,35 +14,38 @@ export async function generateMission({ form, sliders, selectedTargets, targetin
     onProgress?.({ stage: 'VALIDATING EVIDENCE', detail: `Revision ${attempt + 1}/2: ${problems.slice(0, 3).join('; ')}`, done: mission.chits.length, total: poiCount });
     const malformedRequest = problems.some((problem) => /request payload|model unavailable|api key/i.test(problem));
     if (malformedRequest) break;
-    text = await callGemini(form.apiKey, buildRevisionPrompt({ form, sliders, includeFollowUp, previous: mission, problems, poiCount }));
+    response = await callGemini(form.apiKey, buildRevisionPrompt({ form, sliders, includeFollowUp, previous: mission, problems, poiCount }), { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
+    text = response.text;
     mission = normalizeMission(text, { sliders, includeFollowUp, poiCount });
   }
   const duplicates = findDuplicatePoiIndexes(mission.chits);
   if (duplicates.length) {
     onProgress?.({ stage: 'GENERATING POIs', detail: `Replacing ${duplicates.length} duplicate POI(s)...`, done: mission.chits.length - duplicates.length, total: poiCount });
-    mission = await replaceDuplicatePois({ form, sliders, includeFollowUp, mission, duplicates, poiCount });
+    mission = await replaceDuplicatePois({ form, sliders, includeFollowUp, mission, duplicates, poiCount, modelSelection });
   }
   const missing = Math.max(0, poiCount - mission.chits.length);
   if (missing) {
     onProgress?.({ stage: 'GENERATING POIs', detail: `Gemini returned ${mission.chits.length}/${poiCount}. Attempting ${missing} missing POI(s)...`, done: mission.chits.length, total: poiCount });
-    mission = await generateMissingPois({ form, sliders, selectedTargets, targetingMode, includeFollowUp, mission, missing, poiCount });
+    mission = await generateMissingPois({ form, sliders, selectedTargets, targetingMode, includeFollowUp, mission, missing, poiCount, modelSelection });
   }
   onProgress?.({ stage: 'FINALIZING TACTICAL BRIEF', detail: `${mission.chits.length}/${poiCount} POIs generated. Calculating local metrics...`, done: mission.chits.length, total: poiCount });
-  return mission;
+  return { ...mission, modelInfo: { model: response.model, mode: response.mode, fallbackLog: response.fallbackLog } };
 }
 
-export async function regenerateChit({ form, sliders, chit, existingChits, apiKey, includeFollowUp, onProgress }) {
+export async function regenerateChit({ form, sliders, chit, existingChits, apiKey, includeFollowUp, onProgress, modelSelection }) {
   onProgress?.({ stage: 'GENERATING POIs', detail: `Regenerating POI for ${chit.target}...`, done: 0, total: 1 });
   const prompt = `Return STRICT JSON only, no markdown fences. Regenerate exactly 1 distinct ChitForge POI to replace the weak POI below. Use the same agenda, portfolio, target, slider profile, evidence standards, simple English, no ceremonial opening, and Markdown bold emphasis. Do not duplicate these existing POIs: ${JSON.stringify(existingChits.map((item) => item.poi))}.\nAGENDA: ${form.agenda}\nPORTFOLIO: ${form.portfolio}\nTARGET: ${chit.target}\nSLIDERS: ${JSON.stringify(sliders)}\nFOLLOW-UP: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}\nOLD CHIT: ${JSON.stringify(chit)}\nReturn schema {"research_summary":"...","portfolio_alignment":"...","targets":[{"country":"${chit.target}","pressure_points":[{"poi":"...","legal_foundation":"...","evidence":[{"claim":"...","source_name":"...","source_url":"..."}],"documented_contradiction":"...","tactical_impact":"...","classification":"...","follow_up":${includeFollowUp ? '"..."' : 'null'}}]}]}`;
-  const text = await callGemini(apiKey, prompt);
+  const response = await callGemini(apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
+  const text = response.text;
   const mission = normalizeMission(text, { sliders, includeFollowUp, poiCount: 1 });
   return mission.chits[0] || chit;
 }
 
-export async function generateFollowUp({ form, sliders, chit, apiKey, onProgress }) {
+export async function generateFollowUp({ form, sliders, chit, apiKey, onProgress, modelSelection }) {
   onProgress?.({ stage: 'GENERATING FOLLOW-UP', detail: `Generating optional follow-up for ${chit.target}...`, done: 0, total: 1 });
   const prompt = `Return STRICT JSON only, no markdown fences. Generate an optional follow-up for this MUN POI.\nAGENDA: ${form.agenda}\nPORTFOLIO: ${form.portfolio}\nSLIDERS: ${JSON.stringify(sliders)}\nEXISTING CHIT: ${JSON.stringify(chit)}\nReturn {"expectedEvasion":"...","question":"..."}. The follow-up must be short, direct, evidence-based, and must return to the original pressure point. Do not introduce unrelated issues, ceremonial openings, or new unsupported sources.`;
-  const text = await callGemini(apiKey, prompt);
+  const response = await callGemini(apiKey, prompt, { ...modelSelection, schema: FOLLOW_UP_RESPONSE_SCHEMA });
+  const text = response.text;
   try {
     const parsed = JSON.parse(text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, ''));
     return { ...chit, followUp: { expectedEvasion: parsed.expectedEvasion || 'VERIFICATION REQUIRED', question: parsed.question || 'What evidence addresses the original contradiction directly?' } };
@@ -104,17 +108,19 @@ function buildRevisionPrompt({ form, sliders, includeFollowUp, previous, problem
   return `Return STRICT JSON only, no markdown fences. The generated ChitForge mission failed validation. Problems: ${problems.join('; ')}. Inputs: committee=${form.committee || 'Unspecified'}; agenda=${form.agenda}; portfolio=${form.portfolio}; POI count=${poiCount}; sliders=${JSON.stringify(sliders)}; follow-up=${includeFollowUp ? 'ON' : 'OFF'}. Rewrite the mission JSON to fix these problems while preserving factual accuracy. Do not invent sources. Return exactly ${poiCount} distinct POIs total across targets unless Manual mode has zero targets. Do not duplicate arguments. POIs must start directly, avoid ceremonial openings, use simple concise English, include 1–4 Markdown bold phrases, and meet ${lengthRange(sliders.length)}. Previous JSON: ${JSON.stringify(previous)}`;
 }
 
-async function generateMissingPois({ form, sliders, selectedTargets, targetingMode, includeFollowUp, mission, missing, poiCount }) {
+async function generateMissingPois({ form, sliders, selectedTargets, targetingMode, includeFollowUp, mission, missing, poiCount, modelSelection }) {
   const prompt = buildMissionPrompt({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount: missing }) + `\n\nAlready generated POIs to avoid duplicating: ${JSON.stringify(mission.chits.map((chit) => chit.poi))}. Generate exactly ${missing} additional distinct replacement POI chits only.`;
-  const text = await callGemini(form.apiKey, prompt);
+  const response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
+  const text = response.text;
   const extra = normalizeMission(text, { sliders, includeFollowUp, poiCount: missing });
   return { ...mission, chits: [...mission.chits, ...extra.chits].slice(0, poiCount), recommendedTargets: [...(mission.recommendedTargets || []), ...(extra.recommendedTargets || [])] };
 }
 
-async function replaceDuplicatePois({ form, sliders, includeFollowUp, mission, duplicates, poiCount }) {
+async function replaceDuplicatePois({ form, sliders, includeFollowUp, mission, duplicates, poiCount, modelSelection }) {
   const keep = mission.chits.filter((_, index) => !duplicates.includes(index));
   const prompt = `Return STRICT JSON only, no markdown fences. Generate exactly ${duplicates.length} distinct replacement POI chits. Do not duplicate these POIs: ${JSON.stringify(keep.map((chit) => chit.poi))}. Agenda: ${form.agenda}. Portfolio: ${form.portfolio}. Sliders: ${JSON.stringify(sliders)}. Follow-up: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}. Use the same ChitForge schema with targets[].pressure_points[].`;
-  const text = await callGemini(form.apiKey, prompt);
+  const response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
+  const text = response.text;
   const replacement = normalizeMission(text, { sliders, includeFollowUp, poiCount: duplicates.length });
   return { ...mission, chits: [...keep, ...replacement.chits].slice(0, poiCount) };
 }
