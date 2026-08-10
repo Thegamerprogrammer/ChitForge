@@ -43,6 +43,7 @@ function App() {
   const [modelInfo, setModelInfo] = useState(null);
   const [modelLoading, setModelLoading] = useState(false);
   const [customBackground, setCustomBackground] = useState('');
+  const [uiOpacity, setUiOpacity] = useState(100);
   const customBackgroundRef = useRef('');
   const sliderCommitFrame = useRef(0);
   useLiquidGlassResizeObserver();
@@ -127,11 +128,15 @@ function App() {
     catch { setError({ message: 'DOCX export failed. Please try again in a modern browser.' }); }
   };
 
-  return <>
+  const commitOpacity = useCallback((_, value) => setUiOpacity(value), []);
+  const materialOpacity = 0.55 + (uiOpacity / 100) * 0.45;
+  const materialFillAlpha = 0.16 + (uiOpacity / 100) * 0.28;
+
+  return <div className="appShell" style={{ '--material-opacity': materialOpacity, '--material-fill-alpha': materialFillAlpha }}>
     <LiquidGlassFilters />
     <div className="ambientBackdrop" style={customBackground ? { '--custom-background': `url(${customBackground})` } : undefined} />
     <header className="hero glass-panel">
-      <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
+      <div className="heroTitleBlock"><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1 className="titleCard">ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
       <div className="heroActions"><label className="backgroundPicker">Custom background<input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); const nextUrl = URL.createObjectURL(file); customBackgroundRef.current = nextUrl; setCustomBackground(nextUrl); }} /></label><button onClick={() => { if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); customBackgroundRef.current = ''; setCustomBackground(''); }} disabled={!customBackground}>Reset Background</button><button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button></div>
     </header>
     <main className="layout">
@@ -153,7 +158,7 @@ function App() {
           {modelMode === MODEL_SELECTION_MODES.MANUAL && <select value={manualModelId} onChange={(e) => setManualModelId(e.target.value)} onFocus={() => !modelCatalog && refreshModels(false)}>
             {(modelCatalog?.compatible || []).map((m) => <option key={m.id} value={m.id}>{m.displayName} — ✓ Text generation · JSON recovery</option>)}
           </select>}
-          <div className="row"><button type="button" onClick={() => refreshModels(false)} disabled={modelLoading}>{modelLoading ? 'Refreshing…' : 'Refresh Models'}</button><button type="button" onClick={() => refreshModels(true)} disabled={modelLoading}>Refresh Model Capabilities</button></div>
+          <div className="row"><button className="modelRefreshButton" type="button" onClick={() => refreshModels(false)} disabled={modelLoading}>{modelLoading ? 'Refreshing…' : 'Refresh Model'}</button><button className="modelRefreshButton" type="button" onClick={() => refreshModels(true)} disabled={modelLoading}>Refresh Model Availability</button></div>
           <ModelStatus modelInfo={modelInfo} modelCatalog={modelCatalog} modelMode={modelMode} />
         </div>
         <h2>Targeting Mode</h2>
@@ -176,52 +181,89 @@ function App() {
         {error && <ErrorBox error={error} />}
       </section>
       <section className="panel mapPanel"><h2>Real World Target Map</h2><MemoWorldMap selected={selected} setSelected={setSelected} portfolio={form.portfolio} /></section>
-      <aside className="panel queue glass-sidebar"><details className="settingsPanel" open><summary>Generation Settings</summary><div className="settingsGrid"><span>POI Count<b>{poiCount}</b></span><span>POI Type<b>{poiTypes.join(', ')}</b></span><span>Target Mode<b>{mode}</b></span><span>Follow-ups<b>{includeFollowUp ? 'ON' : 'OFF'}</b></span><span>Model<b>{modelInfo?.model?.displayName || modelMode}</b></span><span>Aggression<b>{sliders.aggression}</b></span><span>Controversy<b>{sliders.controversy}</b></span><span>Diplomacy<b>{sliders.diplomacy}</b></span><span>Length<b>{sliders.length}</b></span></div></details><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} activity={activity} />}</aside>
+      <aside className="panel queue glass-sidebar"><details className="settingsPanel" open><summary>Generation Settings</summary><div className="settingsGrid"><span>POI Count<b>{poiCount}</b></span><span>POI Type<b>{poiTypes.join(', ')}</b></span><span>Target Mode<b>{mode}</b></span><span>Follow-ups<b>{includeFollowUp ? 'ON' : 'OFF'}</b></span><span>Model<b>{modelInfo?.model?.displayName || modelMode}</b></span><span>Aggression<b>{sliders.aggression}</b></span><span>Controversy<b>{sliders.controversy}</b></span><span>Diplomacy<b>{sliders.diplomacy}</b></span><span>Length<b>{sliders.length}</b></span></div><GlassRange name="opacity" value={uiOpacity} onCommit={commitOpacity} /></details><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} activity={activity} />}</aside>
     </main>
     {portfolioProfile && <PortfolioIntel profile={portfolioProfile} />}
     {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong>{modelInfo?.model && <strong>MODEL: {modelInfo.model.displayName}</strong>}<strong>FACT CHECK: 2-PASS</strong></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
-  </>;
+  </div>;
 }
 
 
 const GlassRange = React.memo(function GlassRange({ name, value, info, onCommit }) {
   const [displayValue, setDisplayValue] = useState(value);
   const shellRef = useRef(null);
+  const inputRef = useRef(null);
   const frameRef = useRef(0);
+  const valueRef = useRef(value);
 
   useEffect(() => {
+    valueRef.current = value;
     shellRef.current?.style.setProperty('--slider-ratio', String(value / 100));
     shellRef.current?.style.setProperty('--value', `${value}%`);
+    if (inputRef.current) inputRef.current.value = String(value);
   }, [value]);
 
   const updateVisual = useCallback((nextValue) => {
-    const ratio = nextValue / 100;
-    shellRef.current?.style.setProperty('--slider-ratio', String(ratio));
+    valueRef.current = nextValue;
+    setDisplayValue(nextValue);
+    shellRef.current?.style.setProperty('--slider-ratio', String(nextValue / 100));
     shellRef.current?.style.setProperty('--value', `${nextValue}%`);
+    if (inputRef.current) inputRef.current.value = String(nextValue);
   }, []);
 
-  const handleInput = useCallback((event) => {
-    const nextValue = Number(event.currentTarget.value);
-    setDisplayValue(nextValue);
-    updateVisual(nextValue);
-    cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(() => onCommit(name, nextValue));
-  }, [name, onCommit, updateVisual]);
+  const valueFromPointer = useCallback((event) => {
+    const shell = shellRef.current;
+    if (!shell) return valueRef.current;
+    const rect = shell.getBoundingClientRect();
+    const styles = getComputedStyle(shell);
+    const padding = Number.parseFloat(styles.getPropertyValue('--slider-padding')) || 0;
+    const thumbSize = Number.parseFloat(styles.getPropertyValue('--slider-thumb-size')) || 0;
+    const trackWidth = Math.max(1, rect.width - (padding * 2) - thumbSize);
+    const thumbCenter = event.clientX - rect.left - padding - (thumbSize / 2);
+    return Math.round(Math.min(100, Math.max(0, (thumbCenter / trackWidth) * 100)));
+  }, []);
 
-  const commitNow = useCallback((event) => {
-    const nextValue = Number(event.currentTarget.value);
+  const commitValue = useCallback((nextValue) => {
     cancelAnimationFrame(frameRef.current);
     onCommit(name, nextValue);
   }, [name, onCommit]);
+
+  const handlePointerDown = useCallback((event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateVisual(valueFromPointer(event));
+  }, [updateVisual, valueFromPointer]);
+
+  const handlePointerMove = useCallback((event) => {
+    if (!event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+    event.preventDefault();
+    updateVisual(valueFromPointer(event));
+  }, [updateVisual, valueFromPointer]);
+
+  const handlePointerEnd = useCallback((event) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId);
+    const nextValue = valueFromPointer(event);
+    updateVisual(nextValue);
+    commitValue(nextValue);
+  }, [commitValue, updateVisual, valueFromPointer]);
+
+  const handleInput = useCallback((event) => {
+    updateVisual(Number(event.currentTarget.value));
+  }, [updateVisual]);
+
+  const commitNow = useCallback((event) => {
+    commitValue(Number(event.currentTarget.value));
+  }, [commitValue]);
 
   useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
 
   return <label className="slider glassSlider">
     <span>{name}<b>{displayValue}%</b></span>
     {info && <small>{info.lines}<br />{info.words}</small>}
-    <div className="glassSliderShell" ref={shellRef} style={{ '--slider-ratio': displayValue / 100, '--value': `${displayValue}%` }}>
+    <div className="glassSliderShell" ref={shellRef} style={{ '--slider-ratio': displayValue / 100, '--value': `${displayValue}%` }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerEnd} onPointerCancel={handlePointerEnd}>
       <i className="glassSliderFill" />
-      <input type="range" min="0" max="100" value={displayValue} onInput={handleInput} onChange={handleInput} onPointerUp={commitNow} onKeyUp={commitNow} onBlur={commitNow} />
+      <input ref={inputRef} type="range" min="0" max="100" defaultValue={displayValue} onInput={handleInput} onChange={commitNow} onKeyUp={commitNow} onBlur={commitNow} />
     </div>
   </label>;
 });
