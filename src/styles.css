@@ -409,3 +409,235 @@ button, .backgroundPicker {
   button, .backgroundPicker { min-width: var(--button-min-width); height: 42px; }
   .modelBox .row { grid-template-columns: 1fr; }
 }
+
+/* Final quiet liquid-glass correction: performance, readability, alignment, restrained glow */
+:root {
+  --glass-surface: rgba(18, 27, 38, .34);
+  --glass-surface-hover: rgba(36, 52, 68, .42);
+  --glass-surface-active: rgba(24, 39, 55, .38);
+  --glass-border: rgba(205, 230, 255, .18);
+  --glass-refraction: url(#liquid-glass-filter-panel) saturate(1.08);
+  --glass-button-refraction: url(#liquid-glass-filter-button) saturate(1.06);
+  --glass-input-refraction: url(#liquid-glass-filter-input) saturate(1.04);
+  --glass-slider-refraction: url(#liquid-glass-filter-slider) saturate(1.05);
+  --glass-switch-refraction: url(#liquid-glass-filter-switch) saturate(1.04);
+  --text-primary: rgba(248, 252, 255, .98);
+  --text-secondary: rgba(226, 235, 245, .84);
+  --text-tertiary: rgba(202, 214, 226, .70);
+  --ambient-blue: rgba(126, 190, 255, .18);
+  --ambient-blue-strong: rgba(126, 190, 255, .30);
+  --button-height: 44px;
+  --button-min-width: 118px;
+  --button-radius: 22px;
+  --slider-height: 46px;
+  --slider-padding: 7px;
+  --slider-thumb-size: 32px;
+}
+body::before { animation: none !important; filter: none !important; transform: none !important; opacity: .82; }
+.ambientBackdrop { filter: saturate(1.02) brightness(.78) contrast(1.02); transform: translateZ(0); will-change: auto; }
+.hero, .panel, .chit, .poiWindow, .mapWrap {
+  background: linear-gradient(145deg, rgba(20, 31, 43, .44), rgba(255,255,255,.055));
+  border-color: var(--glass-border);
+  box-shadow: 0 24px 70px rgba(0,0,0,.34), 0 0 34px var(--ambient-blue), inset 0 1px rgba(255,255,255,.16);
+  backdrop-filter: var(--glass-refraction);
+  -webkit-backdrop-filter: var(--glass-refraction);
+  will-change: auto;
+}
+.sourceCard, .modelBox, .mode, .recommendation, .progress, .tooltip {
+  background: rgba(20, 31, 43, .34);
+  border-color: rgba(205, 230, 255, .15);
+  box-shadow: 0 14px 34px rgba(0,0,0,.24), 0 0 20px rgba(126,190,255,.08), inset 0 1px rgba(255,255,255,.12);
+}
+.panel::before, .chit::before, .poiWindow::before, .sourceCard::before, .modelBox::before, .mode::before, .recommendation::before, .progress::before, .mapWrap::before,
+.panel::after, .chit::after, .poiWindow::after, .sourceCard::after, .modelBox::after, .mode::after, .recommendation::after, .progress::after, .mapWrap::after, .hero::after, button::after, .backgroundPicker::after, .glassSliderShell::after, .glassSwitch::after {
+  opacity: .12;
+  mix-blend-mode: normal;
+  background: linear-gradient(135deg, rgba(255,255,255,.14), transparent 42%, rgba(126,190,255,.07));
+}
+.hero { max-width: 1440px; margin: 24px auto; width: calc(100% - 64px); align-items: center; }
+.layout { max-width: 1440px; margin: 0 auto; padding: 0 32px 32px; grid-template-columns: minmax(320px, 380px) minmax(460px, 1fr) minmax(320px, 360px); align-items: start; }
+.intel, .poiWindow { max-width: 1440px; margin-left: auto; margin-right: auto; width: calc(100% - 64px); }
+.hero h1, .hero p, h2, h3, .eyebrow, button, .backgroundPicker, label, small, b, p, span, summary, a { text-shadow: none !important; background-clip: border-box !important; -webkit-background-clip: border-box !important; color: inherit; }
+.hero h1 { color: var(--text-primary); text-shadow: none !important; }
+.hero h1::after { background: rgba(126,190,255,.36); opacity: .65; }
+button, .backgroundPicker, .sourceLink {
+  height: var(--button-height);
+  min-height: var(--button-height);
+  min-width: var(--button-min-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  overflow: visible;
+  white-space: nowrap;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  background: rgba(24, 38, 52, .42);
+  border-color: rgba(205,230,255,.20);
+  box-shadow: 0 10px 24px rgba(0,0,0,.24), 0 0 16px rgba(126,190,255,.10), inset 0 1px rgba(255,255,255,.12);
+  backdrop-filter: var(--glass-button-refraction);
+  -webkit-backdrop-filter: var(--glass-button-refraction);
+  will-change: auto;
+}
+button:hover:not(:disabled), .backgroundPicker:hover, .sourceLink:hover { background: rgba(42, 60, 78, .48); border-color: rgba(157,201,255,.34); box-shadow: 0 12px 28px rgba(0,0,0,.26), 0 0 22px rgba(126,190,255,.15); }
+.modelBox .row { grid-template-columns: repeat(2, minmax(240px, 1fr)); align-items: center; gap: 12px; }
+.modelBox .row button { width: 100%; min-width: 240px; }
+.actions, .heroActions, .row, .mapTools, .keyRow { gap: 12px; align-items: center; }
+input, textarea, select { color: var(--text-primary); background: rgba(12, 20, 30, .38); border-color: rgba(205,230,255,.17); box-shadow: inset 0 1px rgba(255,255,255,.10); }
+.glassSliderShell { height: var(--slider-height); background: rgba(14, 24, 34, .36); border-color: rgba(205,230,255,.18); box-shadow: inset 0 1px rgba(255,255,255,.10), 0 0 18px rgba(126,190,255,.09); backdrop-filter: var(--glass-slider-refraction); -webkit-backdrop-filter: var(--glass-slider-refraction); }
+.glassSliderFill { background: linear-gradient(90deg, rgba(126,190,255,.34), rgba(226,241,255,.42)); box-shadow: none; transition: none; }
+.glassSliderShell::before { background: rgba(232, 244, 255, .78); border: 1px solid rgba(157,201,255,.58); box-shadow: 0 7px 16px rgba(0,0,0,.28), 0 0 12px rgba(126,190,255,.20), inset 0 1px rgba(255,255,255,.42); transition: transform .12s ease, opacity .12s ease; }
+.bar i { background: rgba(157,201,255,.62); box-shadow: none; }
+.chit:hover, .panel:hover { border-color: rgba(157,201,255,.24); }
+@media (max-width: 1180px) { .layout { grid-template-columns: minmax(300px, 390px) 1fr; } .modelBox .row { grid-template-columns: 1fr; } .modelBox .row button { min-width: 0; } }
+@media (max-width: 760px) { .hero, .intel, .poiWindow { width: calc(100% - 28px); margin-left: auto; margin-right: auto; } .layout { padding: 0 14px 24px; } button, .backgroundPicker { white-space: normal; height: auto; min-height: var(--button-height); line-height: 1.2; } }
+
+/* Incremental UI pass: panning, precise sliders, compact model controls, console title, opacity-aware glass */
+.appShell { min-height: 100vh; --material-opacity: 1; --material-fill-alpha: .44; }
+.hero, .panel, .chit, .poiWindow, .mapWrap {
+  background: linear-gradient(145deg, rgb(20 31 43 / var(--material-fill-alpha)), rgba(255,255,255, calc(var(--material-fill-alpha) * .16)));
+  opacity: var(--material-opacity);
+}
+.hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+  justify-content: stretch;
+  isolation: isolate;
+}
+.hero h1 {
+  font-family: "Courier New", "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+  font-size: clamp(42px, 7vw, 82px);
+  letter-spacing: -.035em;
+  line-height: .95;
+  font-weight: 800;
+  image-rendering: pixelated;
+  text-transform: none;
+}
+.hero h1::after { margin: 14px 0 0; width: min(230px, 44vw); }
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: .28;
+  background: conic-gradient(from var(--trace-angle, 0deg), transparent 0 78%, rgba(126,190,255,.72) 84%, transparent 90% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1px;
+  animation: tracePerimeter 9s linear infinite;
+}
+button, .backgroundPicker, .sourceLink {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  font-size: 12px;
+  letter-spacing: .005em;
+}
+button::after, .backgroundPicker::after, .sourceLink::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: .24;
+  background: conic-gradient(from var(--trace-angle, 0deg), transparent 0 76%, rgba(126,190,255,.68) 83%, transparent 90% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1px;
+  animation: tracePerimeter 8s linear infinite;
+}
+@keyframes tracePerimeter { to { --trace-angle: 360deg; } }
+@property --trace-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.modelBox { display: grid; gap: 10px; padding: 13px; }
+.modelBox select { min-height: 40px; font-size: 12px; }
+.modelBox .row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.modelBox .row button, .modelRefreshButton {
+  min-width: 0;
+  height: 38px;
+  min-height: 38px;
+  padding-inline: 10px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
+.modelStatus { min-width: 0; overflow-wrap: anywhere; }
+.modelStatus b { font-size: 11px; letter-spacing: .11em; }
+.modelStatus p { font-size: 12px; line-height: 1.25; }
+.modelStatus small, .modelStatus summary, .modelStatus details p { font-size: 11px; line-height: 1.35; }
+.glassSlider { user-select: none; }
+.glassSliderShell { cursor: pointer; touch-action: none; overflow: hidden; }
+.glassSliderShell::before { pointer-events: none; }
+.glassSlider input[type=range] { pointer-events: none; opacity: 0; }
+.pannableMap { cursor: grab; touch-action: none; user-select: none; }
+.pannableMap:active { cursor: grabbing; }
+.mapWrap { user-select: none; }
+.country { touch-action: none; }
+.settingsPanel .glassSlider { margin-top: 14px !important; }
+.settingsPanel .glassSlider > span { color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+@media (max-width: 1180px) { .modelBox .row { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .hero { text-align: left; } .modelBox .row button, .modelRefreshButton { font-size: 10px; white-space: normal; line-height: 1.15; } }
+@media (prefers-reduced-motion: reduce) { .hero::after, button::after, .backgroundPicker::after, .sourceLink::after { animation: none; } }
+/* Opacity control adjusts glass fill only; text stays fully opaque for readability. */
+.hero, .panel, .chit, .poiWindow, .mapWrap { opacity: 1; }
+
+/* Use the supplied title-card artwork instead of live shiny title text. */
+.heroTitleBlock { min-width: 0; }
+.titleCard {
+  margin: 0 0 10px;
+  line-height: 0;
+  text-shadow: none !important;
+}
+.titleCard img {
+  display: block;
+  width: min(620px, 100%);
+  max-height: 210px;
+  object-fit: contain;
+  object-position: left center;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 14px 22px rgba(0,0,0,.36));
+}
+.titleCard::after { content: none; }
+@media (max-width: 760px) {
+  .titleCard img { width: min(100%, 520px); max-height: 150px; }
+}
+
+/* Final title-card sizing pass: keep SVG artwork intact, match the old title scale, add smooth blue ambient glow. */
+.titleCard {
+  position: relative;
+  width: clamp(520px, 52vw, 820px);
+  height: clamp(82px, 7.4vw, 116px);
+  margin: 2px 0 12px;
+  overflow: visible;
+  isolation: isolate;
+}
+.titleCard::before {
+  content: "";
+  position: absolute;
+  inset: -18px -28px -22px -24px;
+  border-radius: 34px;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(ellipse at 44% 54%, rgba(104, 188, 255, .30), rgba(104, 188, 255, .13) 38%, transparent 72%);
+}
+.titleCard img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  transform: translate3d(0, -35%, 0);
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 18px 22px rgba(0,0,0,.38))
+    drop-shadow(0 0 18px rgba(104,188,255,.34))
+    drop-shadow(0 0 38px rgba(104,188,255,.18));
+}
+@media (max-width: 760px) {
+  .titleCard { width: min(100%, 560px); height: 82px; }
+  .titleCard img { width: 560px; max-width: 100%; transform: translate3d(0, -34%, 0); }
+}
