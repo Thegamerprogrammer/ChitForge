@@ -607,3 +607,37 @@ button::after, .backgroundPicker::after, .sourceLink::after {
 @media (max-width: 760px) {
   .titleCard img { width: min(100%, 520px); max-height: 150px; }
 }
+
+/* Final title-card sizing pass: keep SVG artwork intact, match the old title scale, add smooth blue ambient glow. */
+.titleCard {
+  position: relative;
+  width: clamp(520px, 52vw, 820px);
+  height: clamp(82px, 7.4vw, 116px);
+  margin: 2px 0 12px;
+  overflow: visible;
+  isolation: isolate;
+}
+.titleCard::before {
+  content: "";
+  position: absolute;
+  inset: -18px -28px -22px -24px;
+  border-radius: 34px;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(ellipse at 44% 54%, rgba(104, 188, 255, .30), rgba(104, 188, 255, .13) 38%, transparent 72%);
+}
+.titleCard img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  transform: translate3d(0, -35%, 0);
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 18px 22px rgba(0,0,0,.38))
+    drop-shadow(0 0 18px rgba(104,188,255,.34))
+    drop-shadow(0 0 38px rgba(104,188,255,.18));
+}
+@media (max-width: 760px) {
+  .titleCard { width: min(100%, 560px); height: 82px; }
+  .titleCard img { width: 560px; max-width: 100%; transform: translate3d(0, -34%, 0); }
+}
