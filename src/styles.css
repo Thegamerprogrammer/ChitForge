@@ -641,3 +641,35 @@ button::after, .backgroundPicker::after, .sourceLink::after {
   .titleCard { width: min(100%, 560px); height: 82px; }
   .titleCard img { width: 560px; max-width: 100%; transform: translate3d(0, -34%, 0); }
 }
+
+/* Restore non-SVG title: crisp white text with a forced pixel/terminal font treatment. */
+.titleCard {
+  width: auto;
+  height: auto;
+  margin: 2px 0 10px;
+  overflow: visible;
+  color: #f8fcff;
+  font-family: "Courier New", "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+  font-size: clamp(46px, 8vw, 88px);
+  line-height: .92;
+  font-weight: 900;
+  letter-spacing: -.055em;
+  text-transform: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  image-rendering: pixelated;
+  filter: none;
+}
+.titleCard::before { content: none; }
+.titleCard::after {
+  content: "";
+  display: block;
+  width: min(220px, 42vw);
+  height: 2px;
+  margin: 14px 0 0;
+  border-radius: 999px;
+  background: rgba(126,190,255,.36);
+  opacity: .65;
+}
+.titleCard img { display: none; }
