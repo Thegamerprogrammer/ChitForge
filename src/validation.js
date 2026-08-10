@@ -36,6 +36,7 @@ function parseJson(raw) {
 export function normalizeMission(raw, ctx) {
   try {
     const parsed = typeof raw === 'string' ? parseJson(raw) : raw;
+    validateRawMissionShape(parsed, ctx.poiCount);
     const chits = flattenChits(parsed).map((chit) => normalizeChit(chit, ctx));
     return {
       researchSummary: parsed.research_summary || parsed.researchSummary || 'VERIFICATION REQUIRED',
