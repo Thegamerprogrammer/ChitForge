@@ -3,18 +3,20 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { WorldMap } from './map.jsx';
 import { loadStoredKey, saveApiKey, clearStoredKey } from './state.js';
-import { generateFollowUp, generateMission, regenerateChit } from './generation.js';
+import { generateFollowUp, generateMission, regenerateChit, lengthInfo } from './generation.js';
 import { discoverGeminiModels, refreshModelCapabilities, MODEL_SELECTION_MODES } from './gemini.js';
 import { validateMissionInputs } from './validation.js';
 import { downloadBrief } from './export.js';
 import { renderMarkdownBold } from './format.js';
+import { POI_TYPES } from './validation.js';
+import { domainFromUrl } from './sourceValidation.js';
 
 const defaultSliders = { aggression: 0, controversy: 0, diplomacy: 0, length: 0 };
 const modes = [
   ['selected_global', 'Selected + Global Research', 'Selected countries are primary targets; AI may add stronger agenda-relevant targets.'],
   ['selected_only', 'Selected Targets Only', 'Use only countries selected on the real world map.'],
 ];
-const progressStages = ['RESEARCHING PORTFOLIO', 'ANALYZING TARGETS', 'IDENTIFYING PRESSURE POINTS', 'GENERATING POIs', 'VALIDATING EVIDENCE', 'FINALIZING TACTICAL BRIEF'];
+const progressStages = ['INITIALIZING', 'READING AGENDA', 'ANALYZING PORTFOLIO', 'ANALYZING FOREIGN POLICY', 'MAPPING TARGETS', 'RESEARCHING EVIDENCE', 'ANALYZING LEGAL FRAMEWORKS', 'GENERATING POIs', 'VALIDATING STRUCTURE', 'FACT CHECK PASS 1', 'FACT CHECK PASS 2', 'CALCULATING PRESSURE', 'FINALIZING CHITS', 'PREPARING DOCX'];
 
 function App() {
   const stored = useMemo(() => loadStoredKey(), []);
@@ -25,6 +27,8 @@ function App() {
   const [selected, setSelected] = useState([]);
   const [mode, setMode] = useState('selected_global');
   const [includeFollowUp, setIncludeFollowUp] = useState(false);
+  const [poiTypes, setPoiTypes] = useState(['AUTO']);
+  const [activity, setActivity] = useState([]);
   const [portfolioProfile, setPortfolioProfile] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [chits, setChits] = useState([]);
@@ -45,6 +49,7 @@ function App() {
   };
 
   const showError = (err) => setError({ message: err.message || 'Generation failed. Please try again.', diagnostic: err.diagnostic, status: err.status, category: err.category });
+  const pushProgress = (next) => { setStatus(next); setActivity((items) => [{ time: new Date().toLocaleTimeString(), stage: next.stage, detail: next.detail, done: next.done, total: next.total }, ...items].slice(0, 14)); };
 
   const modelSelection = { modelMode, manualModelId };
   const refreshModels = async (verify = false) => {
@@ -66,7 +71,8 @@ function App() {
     setChits([]);
     setRecommendations([]);
     try {
-      const result = await generateMission({ form, sliders, selectedTargets: selected, targetingMode: mode, includeFollowUp, poiCount, onProgress: setStatus, modelSelection });
+      setActivity([]);
+      const result = await generateMission({ form, sliders, selectedTargets: selected, targetingMode: mode, includeFollowUp, poiCount, poiTypes, onProgress: pushProgress, modelSelection });
       setPortfolioProfile(result.portfolioProfile);
       setRecommendations(result.recommendedTargets || []);
       setChits(result.chits);
@@ -84,7 +90,7 @@ function App() {
   const addFollowUp = async (index) => {
     setBusy(true);
     try {
-      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: setStatus, modelSelection });
+      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: pushProgress, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
     } catch (err) { showError(err); }
     finally { setBusy(false); setStatus(null); }
@@ -93,7 +99,7 @@ function App() {
   const regenerateOne = async (index) => {
     setBusy(true);
     try {
-      const updated = await regenerateChit({ form, sliders, chit: chits[index], existingChits: chits.filter((_, i) => i !== index), apiKey: form.apiKey, includeFollowUp, onProgress: setStatus, modelSelection });
+      const updated = await regenerateChit({ form, sliders, chit: chits[index], existingChits: chits.filter((_, i) => i !== index), apiKey: form.apiKey, includeFollowUp, onProgress: pushProgress, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
     } catch (err) { showError(err); }
     finally { setBusy(false); setStatus(null); }
@@ -102,7 +108,7 @@ function App() {
   const copyText = (text) => navigator.clipboard?.writeText(text).catch(() => setError({ message: 'Clipboard access was blocked by the browser.' }));
   const copyAll = () => copyText(chits.map((chit, index) => `POI ${index + 1} — ${chit.target}\n${chit.poi}`).join('\n\n'));
   const exportBrief = (items = chits) => {
-    try { downloadBrief({ form, sliders, portfolioProfile, chits: items, poiCount, selectedTargets: selected, modelInfo, targetMode: mode }); }
+    try { pushProgress({ stage: 'PREPARING DOCX', detail: 'Preparing professional DOCX tactical brief.', done: items.length, total: items.length || 1 }); downloadBrief({ form, sliders, portfolioProfile, chits: items, poiCount, selectedTargets: selected, modelInfo, targetMode: mode }); }
     catch { setError({ message: 'DOCX export failed. Please try again in a modern browser.' }); }
   };
 
@@ -137,15 +143,25 @@ function App() {
         <div className="modes">{modes.map(([id, label, help]) => <label key={id} className="mode"><input type="radio" checked={mode === id} onChange={() => setMode(id)} /> <b>{label}</b><small>{help}</small></label>)}</div>
         <label>POIs to Generate<input type="number" min="1" max="20" value={poiCount} onChange={(e) => setPoiCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
         <label className="check"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /> Generate Follow-Up</label>
+        <h2>POI Type</h2>
+        <div className="typeGrid" role="group" aria-label="POI type selection">{POI_TYPES.map((type) => <label key={type} className={`typeChip ${poiTypes.includes(type) ? 'active' : ''}`}>
+          <input type="checkbox" checked={poiTypes.includes(type)} onChange={() => setPoiTypes((current) => {
+            if (type === 'AUTO') return ['AUTO'];
+            const withoutAuto = current.filter((item) => item !== 'AUTO');
+            const next = withoutAuto.includes(type) ? withoutAuto.filter((item) => item !== type) : [...withoutAuto, type];
+            return next.length ? next : ['AUTO'];
+          })} /> {type}
+        </label>)}</div>
+
         <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'GLOBAL RESEARCH ENABLED unless Selected Targets Only is used.'}</div>
-        {Object.keys(sliders).map((key) => <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span><input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>)}
+        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>; })}
         <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing Tactical POIs…' : 'Generate Tactical POI Array'}</button>
         {error && <ErrorBox error={error} />}
       </section>
       <section className="panel mapPanel"><h2>Real World Target Map</h2><WorldMap selected={selected} setSelected={setSelected} portfolio={form.portfolio} /></section>
-      <aside className="panel queue"><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} />}</aside>
+      <aside className="panel queue glass-sidebar"><details className="settingsPanel" open><summary>Generation Settings</summary><div className="settingsGrid"><span>POI Count<b>{poiCount}</b></span><span>POI Type<b>{poiTypes.join(', ')}</b></span><span>Target Mode<b>{mode}</b></span><span>Follow-ups<b>{includeFollowUp ? 'ON' : 'OFF'}</b></span><span>Model<b>{modelInfo?.model?.displayName || modelMode}</b></span><span>Aggression<b>{sliders.aggression}</b></span><span>Controversy<b>{sliders.controversy}</b></span><span>Diplomacy<b>{sliders.diplomacy}</b></span><span>Length<b>{sliders.length}</b></span></div></details><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} activity={activity} />}</aside>
     </main>
-    {portfolioProfile && <section className="panel intel"><h2>Portfolio Intelligence Summary</h2><p>{portfolioProfile.summary}</p><div className="intelGrid">{(portfolioProfile.interests || []).map((item) => <span key={item}>{item}</span>)}</div></section>}
+    {portfolioProfile && <PortfolioIntel profile={portfolioProfile} />}
     {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong>{modelInfo?.model && <strong>MODEL: {modelInfo.model.displayName}</strong>}<strong>FACT CHECK: 2-PASS</strong></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
   </>;
 }
@@ -159,19 +175,36 @@ function ErrorBox({ error }) {
   return <div className="error"><b>{error.category ? 'GEMINI ERROR' : 'MISSION ERROR'}</b><p>{error.message}</p>{import.meta.env.DEV && error.diagnostic && <pre>{error.diagnostic}</pre>}</div>;
 }
 
-function ProgressPanel({ status, poiCount }) {
+function ProgressPanel({ status, poiCount, activity }) {
   const currentIndex = Math.max(0, progressStages.indexOf(status?.stage));
-  return <div className="progress"><h2>SYNTHESIZING TACTICAL POIs...</h2>{progressStages.map((stage, index) => <p key={stage} className={index < currentIndex ? 'pass' : index === currentIndex ? 'activeStage' : ''}>{index < currentIndex ? '✓ ' : ''}{stage}{stage === 'GENERATING POIs' && status?.total ? ` ${status.done || 0} / ${status.total || poiCount}` : ''}</p>)}{status?.detail && <small>{status.detail}</small>}</div>;
+  const pct = Math.round(((currentIndex + (status?.done && status?.total ? status.done / status.total : 0.35)) / progressStages.length) * 100);
+  return <div className="progress glass-progress" aria-live="polite"><span className="eyebrow">CHITFORGE</span><h2>SYNTHESIS ENGINE</h2><strong>{status?.stage || 'INITIALIZING'}</strong><small>{status?.detail || 'Preparing tactical synthesis.'}</small><div className="bar"><i style={{ width: `${Math.min(100, pct)}%` }} /></div><b>{Math.min(100, pct)}%</b><p>POI {Math.min(status?.done || 0, status?.total || poiCount)} / {status?.total || poiCount}</p><div className="stageList">{progressStages.map((stage, index) => <span key={stage} className={index < currentIndex ? 'complete' : index === currentIndex ? 'active' : 'pending'}>{index < currentIndex ? '✓' : index === currentIndex ? '→' : '○'} {String(index + 1).padStart(2, '0')} {stage}</span>)}</div><div className="activityFeed">{activity.map((item, idx) => <p key={`${item.time}-${idx}`}><time>{item.time}</time> <span>{idx === 0 ? '→' : '✓'}</span> {item.detail || item.stage}</p>)}</div></div>;
+}
+
+function PortfolioIntel({ profile }) {
+  return <section className="panel intel glass-panel"><h2>Portfolio Intelligence</h2><p>{profile.summary}</p>{(profile.statements || []).map((statement, idx) => <div className="sourceCard" key={idx}><StatusBadge status={statement.status || 'MANUAL VERIFICATION'} /><p>{statement.text || statement.claim || statement}</p>{(statement.sources || profile.sources || []).slice(0, 2).map((source, i) => <SourceCard source={source} key={`${source.url}-${i}`} />)}</div>)}<div className="intelGrid">{(profile.interests || []).map((item) => <span key={item}>{item}</span>)}</div></section>;
+}
+
+
+function StatusBadge({ status }) {
+  const normalized = String(status || 'PENDING').toUpperCase().replace(/_/g, ' ');
+  const symbol = normalized === 'VERIFIED' ? '✓' : normalized === 'FAILED' ? '✕' : normalized === 'PENDING' ? '○' : '⚠';
+  return <span className={`statusBadge ${normalized.toLowerCase().replace(/\s+/g, '-')}`}>{symbol} {normalized}</span>;
+}
+
+function SourceCard({ source }) {
+  const domain = source.domain || domainFromUrl(source.url);
+  return <div className="sourceCard glass-source-card"><div><b>SOURCE</b><h3>{source.sourceName || 'Manual verification source'}</h3><p>Organization: {source.organization || 'MANUAL VERIFICATION'}<br />Published: {source.publicationDate || 'MANUAL VERIFICATION'}</p></div><div><b>STATUS</b><StatusBadge status={source.status || 'MANUAL VERIFICATION'} /><p><b>SOURCE QUALITY</b><br />{source.quality || 'LIMITED'}</p></div><p><b>CLAIM SUPPORTED</b><br />{source.claimSupported || source.claim || 'MANUAL VERIFICATION: claim support must be checked.'}</p>{source.url && <a className="sourceLink" href={source.url} target="_blank" rel="noreferrer">OPEN SOURCE ↗ {domain && <small>{domain}</small>}</a>}{source.verificationReason && <small>{source.verificationReason}</small>}</div>;
 }
 
 function ChitCard({ chit, number, onCopy, onFollowUp, onRegenerate }) {
   const full = JSON.stringify(chit, null, 2);
   return <article className="chit glassCard">
-    <div className="chitHead"><b>POI {String(number).padStart(2, '0')}</b><span>{chit.pressureProfile?.classification}</span></div>
+    <div className="chitHead"><b>POI #{number}</b><span>{chit.classification || chit.pressureProfile?.classification}</span></div>
     <p className="targetLine">TARGET: <strong>{chit.target}</strong></p>
     <blockquote className="poiQuestion" dangerouslySetInnerHTML={{ __html: `“${renderMarkdownBold(chit.poi)}”` }} />
-    <section className="metrics"><span>{chit.wordCount} WORDS</span><span>~{chit.estimatedSeconds} SEC</span><span>PRESSURE {chit.pressureProfile?.score}/100</span><span>AGGRESSION {chit.pressureProfile?.aggression}%</span><span>CONTROVERSY {chit.pressureProfile?.controversy}%</span><span>DIPLOMACY {chit.pressureProfile?.diplomacy}%</span><span>LENGTH {chit.pressureProfile?.length}%</span></section>
-    <div className="accordion"><details><summary>Evidence</summary>{(chit.evidence || []).map((e, idx) => <div className="evidence" key={`${e.url}-${idx}`}><b>Source:</b> {e.title || e.source}<br /><b>Organization:</b> {e.organization || e.publication || 'VERIFICATION REQUIRED'}<br /><b>Date:</b> {e.date || 'VERIFICATION REQUIRED'}<br /><b>URL:</b> {e.url ? <a href={e.url} target="_blank" rel="noreferrer">{e.url}</a> : 'VERIFICATION REQUIRED'}<br /><b>Classification:</b> {e.sourceClassification || e.status || 'VERIFICATION REQUIRED'}<br /><b>Claim:</b> {e.claim}</div>)}</details><details><summary>Legal Foundation</summary><p>{chit.legalPolicyFoundation}</p></details><details><summary>Contradiction</summary><p><b>Portfolio position:</b> {chit.pressurePoint?.portfolioPosition}</p><p><b>Target position/action:</b> {chit.pressurePoint?.targetPositionAction}</p><p><b>Conflict:</b> {chit.pressurePoint?.conflict}</p><p><b>Agenda relevance:</b> {chit.pressurePoint?.agendaRelevance}</p></details><details><summary>Tactical Impact</summary><p>{chit.tacticalImpact}</p><div className="tags">{(chit.legalTacticalTypes || []).map((type) => <span key={type}>{type}</span>)}</div></details><details open={!!chit.followUp}><summary>Follow-up</summary>{chit.followUp ? <><p><b>Expected evasion:</b> {chit.followUp.expectedEvasion}</p><p><b>Follow-up:</b> {chit.followUp.question}</p></> : <p className="muted">No follow-up generated yet.</p>}</details></div>
+    <section className="metrics"><span>{chit.wordCount} WORDS</span><span>{chit.estimatedLines} </span><span>~{chit.estimatedSeconds} SEC</span><span>PRESSURE {chit.pressureScore ?? chit.pressureProfile?.score}/100</span><span>AGGRESSION {chit.pressureProfile?.aggression}%</span><span>CONTROVERSY {chit.pressureProfile?.controversy}%</span><span>DIPLOMACY {chit.pressureProfile?.diplomacy}%</span><span>LENGTH {chit.pressureProfile?.length}%</span></section>
+    <div className="accordion"><details><summary>Legal Foundation</summary><p>{chit.legalFoundation || chit.legalPolicyFoundation}</p></details><details><summary>Evidence & Sources</summary>{(chit.evidence || []).map((e, idx) => <SourceCard source={e} key={`${e.url}-${idx}`} />)}</details><details><summary>Documented Issue</summary><p><b>Portfolio position:</b> {chit.pressurePoint?.portfolioPosition}</p><p><b>Target position/action:</b> {chit.pressurePoint?.targetPositionAction}</p><p><b>Conflict:</b> {chit.pressurePoint?.conflict}</p><p><b>Agenda relevance:</b> {chit.pressurePoint?.agendaRelevance}</p></details><details><summary>Tactical Impact</summary><p>{chit.tacticalImpact}</p><div className="tags">{(chit.legalTacticalTypes || []).map((type) => <span key={type}>{type}</span>)}<span>{chit.classificationReason}</span></div></details><details><summary>Verification</summary><StatusBadge status={chit.factCheck?.status || 'PENDING'} /><p><b>Legal:</b> {chit.factCheck?.legalAssessment?.status || 'UNCERTAIN'} — {chit.factCheck?.legalAssessment?.reason}</p><p><b>Classification:</b> {chit.factCheck?.classificationAssessment?.status || 'UNCERTAIN'} — {chit.factCheck?.classificationAssessment?.reason}</p></details><details open={!!chit.followUp}><summary>Follow-up</summary>{chit.followUp ? <><p><b>Expected evasion:</b> {chit.followUp.expectedEvasion}</p><p><b>Follow-up:</b> {chit.followUp.question}</p></> : <p className="muted">No follow-up generated yet.</p>}</details></div>
     <div className="actions"><button onClick={() => onCopy(chit.poi)}>Copy POI</button><button onClick={() => onCopy(full)}>Copy Full</button><button onClick={onRegenerate}>Regenerate</button><button onClick={onFollowUp}>Generate Follow-up</button></div>
   </article>;
 }
