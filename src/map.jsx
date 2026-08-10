@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { geoNaturalEarth1, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import world from 'world-atlas/countries-110m.json';
@@ -29,6 +29,7 @@ function normalizeCountry(geo) {
 
 export function WorldMap({ selected, setSelected, portfolio }) {
   const [tooltip, setTooltip] = useState(null);
+  const tooltipFrame = useRef(0);
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
   const countries = useMemo(() => {
     const fc = feature(world, world.objects.countries);
@@ -41,6 +42,15 @@ export function WorldMap({ selected, setSelected, portfolio }) {
   const toggle = (country) => {
     setSelected(selectedIso.has(country.iso) ? selected.filter((c) => c.iso !== country.iso) : [...selected, { iso: country.iso, name: country.name }]);
   };
+  const moveTooltip = useCallback((event, country) => {
+    const { offsetX, offsetY } = event.nativeEvent;
+    cancelAnimationFrame(tooltipFrame.current);
+    tooltipFrame.current = requestAnimationFrame(() => setTooltip({ x: offsetX + 14, y: offsetY + 14, name: country.name, iso: country.iso }));
+  }, []);
+  const hideTooltip = useCallback(() => {
+    cancelAnimationFrame(tooltipFrame.current);
+    setTooltip(null);
+  }, []);
   return <div className="mapWrap">
     <div className="mapTools"><button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.min(3, v.scale + 0.25) }))}>Zoom +</button><button type="button" onClick={() => setView((v) => ({ ...v, scale: Math.max(1, v.scale - 0.25) }))}>Zoom −</button><button type="button" onClick={() => setView({ scale: 1, x: 0, y: 0 })}>Reset</button><button type="button" onClick={() => setSelected([])}>Clear all</button></div>
     <svg viewBox="0 0 980 520" role="img" aria-label="Interactive real world map from Natural Earth geometry via world-atlas">
@@ -50,7 +60,7 @@ export function WorldMap({ selected, setSelected, portfolio }) {
       {countries.map((country) => {
         const isPortfolio = portfolioText && (country.iso.toLowerCase() === portfolioText || country.name.toLowerCase() === portfolioText);
         const isSelected = selectedIso.has(country.iso);
-        return <path key={`${country.iso}-${country.name}`} tabIndex="0" d={country.d} data-iso={country.iso} className={`country ${isSelected ? 'selected' : ''} ${isPortfolio ? 'portfolio' : ''} ${isPortfolio && isSelected ? 'selfTarget' : ''}`} onClick={() => toggle(country)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle(country); }} onMouseMove={(e) => setTooltip({ x: e.nativeEvent.offsetX + 14, y: e.nativeEvent.offsetY + 14, name: country.name, iso: country.iso })} onMouseLeave={() => setTooltip(null)}><title>{country.name} · {country.iso}</title></path>;
+        return <path key={`${country.iso}-${country.name}`} tabIndex="0" d={country.d} data-iso={country.iso} className={`country ${isSelected ? 'selected' : ''} ${isPortfolio ? 'portfolio' : ''} ${isPortfolio && isSelected ? 'selfTarget' : ''}`} onClick={() => toggle(country)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle(country); }} onMouseMove={(e) => moveTooltip(e, country)} onMouseLeave={hideTooltip}><title>{country.name} · {country.iso}</title></path>;
       })}
       </g>
     </svg>
