@@ -4,6 +4,7 @@ import './styles.css';
 import { WorldMap } from './map.jsx';
 import { loadStoredKey, saveApiKey, clearStoredKey } from './state.js';
 import { generateFollowUp, generateMission, regenerateChit } from './generation.js';
+import { discoverGeminiModels, refreshModelCapabilities, MODEL_SELECTION_MODES } from './gemini.js';
 import { validateMissionInputs } from './validation.js';
 import { downloadBrief } from './export.js';
 import { renderMarkdownBold } from './format.js';
@@ -31,14 +32,32 @@ function App() {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [modelMode, setModelMode] = useState(MODEL_SELECTION_MODES.BEST);
+  const [manualModelId, setManualModelId] = useState('');
+  const [modelCatalog, setModelCatalog] = useState(null);
+  const [modelInfo, setModelInfo] = useState(null);
+  const [modelLoading, setModelLoading] = useState(false);
 
   const updateForm = (key, value) => {
     const next = { ...form, [key]: value };
     setForm(next);
     if (key === 'apiKey' || key === 'rememberKey') saveApiKey(next.apiKey, next.rememberKey);
+    if (key === 'apiKey') { setModelCatalog(null); setManualModelId(''); setModelInfo(null); }
   };
 
   const showError = (err) => setError({ message: err.message || 'Generation failed. Please try again.', diagnostic: err.diagnostic, status: err.status, category: err.category });
+
+  const modelSelection = { modelMode, manualModelId };
+  const refreshModels = async (verify = false) => {
+    if (!form.apiKey.trim()) { setError({ message: 'Missing Gemini API key. Enter your key and try again.' }); return; }
+    setModelLoading(true); setError(null);
+    try {
+      const catalog = verify ? await refreshModelCapabilities(form.apiKey, { force: true }) : await discoverGeminiModels(form.apiKey, { force: true });
+      setModelCatalog(catalog);
+      if (!manualModelId && catalog.compatible[0]) setManualModelId(catalog.compatible[0].id);
+    } catch (err) { showError(err); }
+    finally { setModelLoading(false); }
+  };
 
   const runGeneration = async () => {
     const validation = validateMissionInputs({ ...form, poiCount });
@@ -48,10 +67,11 @@ function App() {
     setChits([]);
     setRecommendations([]);
     try {
-      const result = await generateMission({ form, sliders, selectedTargets: selected, targetingMode: mode, includeFollowUp, poiCount, onProgress: setStatus });
+      const result = await generateMission({ form, sliders, selectedTargets: selected, targetingMode: mode, includeFollowUp, poiCount, onProgress: setStatus, modelSelection });
       setPortfolioProfile(result.portfolioProfile);
       setRecommendations(result.recommendedTargets || []);
       setChits(result.chits);
+      setModelInfo(result.modelInfo || null);
       if (result.chits.length < poiCount && mode !== 'manual') setError({ message: `${result.chits.length} / ${poiCount} POIs generated. Gemini did not return enough distinct, defensible POIs after retry attempts. No duplicates were inserted.` });
       if (!result.chits.length) setError({ message: mode === 'manual' && !selected.length ? 'Manual mode needs at least one selected target. Zero selected targets is valid in Hybrid or Automatic mode.' : 'No defensible targets were discovered. Try Hybrid or Manual mode, or refine the agenda.' });
     } catch (err) {
@@ -65,7 +85,7 @@ function App() {
   const addFollowUp = async (index) => {
     setBusy(true);
     try {
-      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: setStatus });
+      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: setStatus, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
     } catch (err) { showError(err); }
     finally { setBusy(false); setStatus(null); }
@@ -74,7 +94,7 @@ function App() {
   const regenerateOne = async (index) => {
     setBusy(true);
     try {
-      const updated = await regenerateChit({ form, sliders, chit: chits[index], existingChits: chits.filter((_, i) => i !== index), apiKey: form.apiKey, includeFollowUp, onProgress: setStatus });
+      const updated = await regenerateChit({ form, sliders, chit: chits[index], existingChits: chits.filter((_, i) => i !== index), apiKey: form.apiKey, includeFollowUp, onProgress: setStatus, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
     } catch (err) { showError(err); }
     finally { setBusy(false); setStatus(null); }
@@ -100,6 +120,20 @@ function App() {
         <label>Portfolio / Country<input value={form.portfolio} onChange={(e) => updateForm('portfolio', e.target.value)} placeholder="e.g. Indonesia or IDN" /></label>
         <label>Gemini API Key<div className="keyRow"><input type={showKey ? 'text' : 'password'} autoComplete="off" value={form.apiKey} onChange={(e) => updateForm('apiKey', e.target.value)} placeholder="Stored for this session by default" /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button></div></label>
         <div className="row"><label className="check"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /> Save beyond this session</label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear Key</button></div>
+
+        <h2>AI Model</h2>
+        <div className="modelBox" onFocus={() => !modelCatalog && form.apiKey.trim() && refreshModels(false)}>
+          <select value={modelMode} onChange={(e) => setModelMode(e.target.value)}>
+            <option value={MODEL_SELECTION_MODES.BEST}>✨ Best Available</option>
+            <option value={MODEL_SELECTION_MODES.ROTATION}>Smart Rotation</option>
+            <option value={MODEL_SELECTION_MODES.MANUAL}>Manual</option>
+          </select>
+          {modelMode === MODEL_SELECTION_MODES.MANUAL && <select value={manualModelId} onChange={(e) => setManualModelId(e.target.value)} onFocus={() => !modelCatalog && refreshModels(false)}>
+            {(modelCatalog?.compatible || []).map((m) => <option key={m.id} value={m.id}>{m.displayName} — ✓ Structured JSON {m.verified ? 'Verified' : 'API Verified'}</option>)}
+          </select>}
+          <div className="row"><button type="button" onClick={() => refreshModels(false)} disabled={modelLoading}>{modelLoading ? 'Refreshing…' : 'Refresh Models'}</button><button type="button" onClick={() => refreshModels(true)} disabled={modelLoading}>Refresh Model Capabilities</button></div>
+          <ModelStatus modelInfo={modelInfo} modelCatalog={modelCatalog} modelMode={modelMode} />
+        </div>
         <h2>Targeting Mode</h2>
         <div className="modes">{modes.map(([id, label, help]) => <label key={id} className="mode"><input type="radio" checked={mode === id} onChange={() => setMode(id)} /> <b>{label}</b><small>{help}</small></label>)}</div>
         <label>POIs to Generate<input type="number" min="1" max="20" value={poiCount} onChange={(e) => setPoiCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
@@ -115,6 +149,11 @@ function App() {
     {portfolioProfile && <section className="panel intel"><h2>Portfolio Intelligence Summary</h2><p>{portfolioProfile.summary}</p><div className="intelGrid">{(portfolioProfile.interests || []).map((item) => <span key={item}>{item}</span>)}</div></section>}
     {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
   </>;
+}
+
+function ModelStatus({ modelInfo, modelCatalog, modelMode }) {
+  const active = modelInfo?.model || modelCatalog?.compatible?.[0];
+  return <div className="modelStatus"><b>AI ENGINE</b>{active ? <><p>{modelInfo?.fallbackLog?.length ? '↻' : '●'} {active.displayName}</p><small>{modelMode === MODEL_SELECTION_MODES.BEST ? 'BEST AVAILABLE' : modelMode === MODEL_SELECTION_MODES.ROTATION ? 'SMART ROTATION' : 'MANUAL'} · {active.compatibilityStatus}</small>{modelInfo?.fallbackLog?.length > 0 && <small>Fallback from unavailable model</small>}</> : <small>Models are discovered after you enter one Gemini API key.</small>}{modelCatalog?.all?.length > 0 && <details><summary>Compatible models</summary>{modelCatalog.all.map((m) => <p key={m.id} className={m.structuredJson ? 'pass' : 'warn'}>{m.displayName} — {m.compatibilityStatus} — {Math.round(m.priority)} pts</p>)}</details>}</div>;
 }
 
 function ErrorBox({ error }) {
