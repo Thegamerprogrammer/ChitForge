@@ -493,3 +493,96 @@ input, textarea, select { color: var(--text-primary); background: rgba(12, 20, 3
 .chit:hover, .panel:hover { border-color: rgba(157,201,255,.24); }
 @media (max-width: 1180px) { .layout { grid-template-columns: minmax(300px, 390px) 1fr; } .modelBox .row { grid-template-columns: 1fr; } .modelBox .row button { min-width: 0; } }
 @media (max-width: 760px) { .hero, .intel, .poiWindow { width: calc(100% - 28px); margin-left: auto; margin-right: auto; } .layout { padding: 0 14px 24px; } button, .backgroundPicker { white-space: normal; height: auto; min-height: var(--button-height); line-height: 1.2; } }
+
+/* Incremental UI pass: panning, precise sliders, compact model controls, console title, opacity-aware glass */
+.appShell { min-height: 100vh; --material-opacity: 1; --material-fill-alpha: .44; }
+.hero, .panel, .chit, .poiWindow, .mapWrap {
+  background: linear-gradient(145deg, rgb(20 31 43 / var(--material-fill-alpha)), rgba(255,255,255, calc(var(--material-fill-alpha) * .16)));
+  opacity: var(--material-opacity);
+}
+.hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+  justify-content: stretch;
+  isolation: isolate;
+}
+.hero h1 {
+  font-family: "Courier New", "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+  font-size: clamp(42px, 7vw, 82px);
+  letter-spacing: -.035em;
+  line-height: .95;
+  font-weight: 800;
+  image-rendering: pixelated;
+  text-transform: none;
+}
+.hero h1::after { margin: 14px 0 0; width: min(230px, 44vw); }
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: .28;
+  background: conic-gradient(from var(--trace-angle, 0deg), transparent 0 78%, rgba(126,190,255,.72) 84%, transparent 90% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1px;
+  animation: tracePerimeter 9s linear infinite;
+}
+button, .backgroundPicker, .sourceLink {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  font-size: 12px;
+  letter-spacing: .005em;
+}
+button::after, .backgroundPicker::after, .sourceLink::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: .24;
+  background: conic-gradient(from var(--trace-angle, 0deg), transparent 0 76%, rgba(126,190,255,.68) 83%, transparent 90% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1px;
+  animation: tracePerimeter 8s linear infinite;
+}
+@keyframes tracePerimeter { to { --trace-angle: 360deg; } }
+@property --trace-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.modelBox { display: grid; gap: 10px; padding: 13px; }
+.modelBox select { min-height: 40px; font-size: 12px; }
+.modelBox .row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.modelBox .row button, .modelRefreshButton {
+  min-width: 0;
+  height: 38px;
+  min-height: 38px;
+  padding-inline: 10px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
+.modelStatus { min-width: 0; overflow-wrap: anywhere; }
+.modelStatus b { font-size: 11px; letter-spacing: .11em; }
+.modelStatus p { font-size: 12px; line-height: 1.25; }
+.modelStatus small, .modelStatus summary, .modelStatus details p { font-size: 11px; line-height: 1.35; }
+.glassSlider { user-select: none; }
+.glassSliderShell { cursor: pointer; touch-action: none; overflow: hidden; }
+.glassSliderShell::before { pointer-events: none; }
+.glassSlider input[type=range] { pointer-events: none; opacity: 0; }
+.pannableMap { cursor: grab; touch-action: none; user-select: none; }
+.pannableMap:active { cursor: grabbing; }
+.mapWrap { user-select: none; }
+.country { touch-action: none; }
+.settingsPanel .glassSlider { margin-top: 14px !important; }
+.settingsPanel .glassSlider > span { color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+@media (max-width: 1180px) { .modelBox .row { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .hero { text-align: left; } .modelBox .row button, .modelRefreshButton { font-size: 10px; white-space: normal; line-height: 1.15; } }
+@media (prefers-reduced-motion: reduce) { .hero::after, button::after, .backgroundPicker::after, .sourceLink::after { animation: none; } }
+/* Opacity control adjusts glass fill only; text stays fully opaque for readability. */
+.hero, .panel, .chit, .poiWindow, .mapWrap { opacity: 1; }
