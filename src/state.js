@@ -1,0 +1,4 @@
+export const state={agenda:'',committee:'',portfolio:'',apiKey:'',rememberKey:false,selected:new Map(),sliders:{controversy:0,aggression:0,diplomacy:0,length:0},chits:[],busy:false};
+export const loadKey=()=>{const remembered=localStorage.getItem('chitforgeRememberKey')==='true';state.rememberKey=remembered;state.apiKey=(remembered?localStorage:sessionStorage).getItem('chitforgeGeminiKey')||''};
+export const saveKey=key=>{state.apiKey=key;if(state.rememberKey){localStorage.setItem('chitforgeGeminiKey',key);localStorage.setItem('chitforgeRememberKey','true');sessionStorage.removeItem('chitforgeGeminiKey')}else{sessionStorage.setItem('chitforgeGeminiKey',key);localStorage.removeItem('chitforgeGeminiKey');localStorage.setItem('chitforgeRememberKey','false')}};
+export const clearKey=()=>{state.apiKey='';sessionStorage.removeItem('chitforgeGeminiKey');localStorage.removeItem('chitforgeGeminiKey');localStorage.removeItem('chitforgeRememberKey')};
