@@ -20,33 +20,29 @@ const DEPRECATED = /(deprecated|retired|shutdown|legacy)/i;
 
 export const CHITFORGE_RESPONSE_SCHEMA = {
   type: 'object',
-  required: ['research_summary', 'portfolio_alignment', 'targets'],
+  required: ['pois'],
   properties: {
-    research_summary: { type: 'string' },
-    portfolio_alignment: { type: 'string' },
-    portfolioProfile: { type: 'object' },
-    recommendedTargets: { type: 'array' },
-    targets: {
+    pois: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['country', 'reason_for_targeting', 'pressure_points'],
+        required: ['target', 'question', 'legalFoundation', 'evidence', 'documentedIssue', 'classification', 'tacticalImpact', 'followUp'],
         properties: {
-          country: { type: 'string' }, iso: { type: 'string' }, reason_for_targeting: { type: 'string' },
-          pressure_points: {
+          target: { type: 'string', description: 'Target country or delegation.' },
+          question: { type: 'string', description: 'The concise MUN Point of Information question.' },
+          legalFoundation: { type: 'string', description: 'Relevant treaty, resolution, institution rule, legal framework, or political commitment with binding status distinguished.' },
+          evidence: {
             type: 'array',
             items: {
               type: 'object',
-              required: ['poi', 'legal_foundation', 'evidence', 'documented_contradiction', 'tactical_impact', 'classification', 'expected_evasion', 'follow_up'],
-              properties: {
-                title: { type: 'string' }, poi: { type: 'string' }, legal_foundation: { type: 'string' },
-                evidence: { type: 'array', items: { type: 'object', required: ['claim', 'source_name', 'source_url'], properties: { claim: { type: 'string' }, source_name: { type: 'string' }, source_url: { type: 'string' }, sourceClassification: { type: 'string' } } } },
-                documented_contradiction: { type: 'string' }, tactical_impact: { type: 'string' }, classification: { type: 'string' },
-                contradictionStrength: { type: 'number' }, agendaRelevanceScore: { type: 'number' }, portfolioAlignmentScore: { type: 'number' }, legalRelevanceScore: { type: 'number' },
-                expected_evasion: { nullable: true, type: 'string' }, follow_up: { nullable: true, type: 'string' },
-              },
+              required: ['claim', 'sourceName', 'sourceUrl'],
+              properties: { claim: { type: 'string' }, sourceName: { type: 'string' }, sourceUrl: { type: 'string' } },
             },
           },
+          documentedIssue: { type: 'string' },
+          classification: { type: 'string' },
+          tacticalImpact: { type: 'string' },
+          followUp: { type: 'string', nullable: true },
         },
       },
     },

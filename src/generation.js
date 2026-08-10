@@ -1,5 +1,5 @@
 import { callGemini, callFactCheck, repairJsonWithGemini, GeminiError, CHITFORGE_RESPONSE_SCHEMA, FOLLOW_UP_RESPONSE_SCHEMA } from './gemini.js';
-import { validateMissionResponse, findDuplicatePoiIndexes } from './validation.js';
+import { findDuplicatePoiIndexes } from './validation.js';
 import { toInternalMission, validateInternalMission, extractJson } from './responseParser.js';
 
 export async function generateMission({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount, onProgress, modelSelection }) {
@@ -8,17 +8,7 @@ export async function generateMission({ form, sliders, selectedTargets, targetin
   onProgress?.({ stage: 'ANALYZING TARGETS', detail: 'Researching agenda-relevant targets and pressure points...', done: 0, total: poiCount });
   let response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA, onModelStatus: (status) => onProgress?.({ stage: 'ANALYZING TARGETS', detail: `Using ${status.model.displayName} for ${status.mode}.`, done: 0, total: poiCount }) });
   let text = response.text;
-  let mission = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount, targetingMode }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const problems = validateMissionResponse(mission, { selectedTargets, targetingMode, includeFollowUp, sliders, poiCount });
-    if (!problems.length) break;
-    onProgress?.({ stage: 'VALIDATING EVIDENCE', detail: `Revision ${attempt + 1}/2: ${problems.slice(0, 3).join('; ')}`, done: mission.chits.length, total: poiCount });
-    const malformedRequest = problems.some((problem) => /request payload|model unavailable|api key/i.test(problem));
-    if (malformedRequest) break;
-    response = await callGemini(form.apiKey, buildRevisionPrompt({ form, sliders, includeFollowUp, previous: mission, problems, poiCount }), { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
-    text = response.text;
-    mission = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount, targetingMode }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
-  }
+  let mission = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount, targetingMode, lengthInfo: lengthInfo(sliders.length) }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   const duplicates = findDuplicatePoiIndexes(mission.chits);
   if (duplicates.length) {
     onProgress?.({ stage: 'GENERATING POIs', detail: `Replacing ${duplicates.length} duplicate POI(s)...`, done: mission.chits.length - duplicates.length, total: poiCount });
@@ -39,7 +29,7 @@ export async function regenerateChit({ form, sliders, chit, existingChits, apiKe
   const prompt = `Return STRICT JSON only, no markdown fences. Regenerate exactly 1 distinct ChitForge POI to replace the weak POI below. Use the same agenda, portfolio, target, slider profile, evidence standards, simple English, no ceremonial opening, and Markdown bold emphasis. Do not duplicate these existing POIs: ${JSON.stringify(existingChits.map((item) => item.poi))}.\nAGENDA: ${form.agenda}\nPORTFOLIO: ${form.portfolio}\nTARGET: ${chit.target}\nSLIDERS: ${JSON.stringify(sliders)}\nFOLLOW-UP: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}\nOLD CHIT: ${JSON.stringify(chit)}\nReturn schema {"research_summary":"...","portfolio_alignment":"...","targets":[{"country":"${chit.target}","pressure_points":[{"poi":"...","legal_foundation":"...","evidence":[{"claim":"...","source_name":"...","source_url":"..."}],"documented_contradiction":"...","tactical_impact":"...","classification":"...","follow_up":${includeFollowUp ? '"..."' : 'null'}}]}]}`;
   const response = await callGemini(apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
   const text = response.text;
-  const mission = await recoverMission({ apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: 1, targetingMode: 'regenerate' }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
+  const mission = await recoverMission({ apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: 1, targetingMode: 'regenerate', lengthInfo: lengthInfo(sliders.length) }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   return mission.chits[0] || chit;
 }
 
@@ -61,9 +51,10 @@ async function recoverMission({ apiKey, text, ctx, modelSelection, modelInfo }) 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const mission = toInternalMission(text, ctx, modelInfo);
+      const usable = mission.chits.length;
+      if (usable > 0 || ctx.poiCount === 0) return mission;
       const problems = validateInternalMission(mission, { poiCount: ctx.poiCount, includeFollowUp: ctx.includeFollowUp });
-      if (!problems.length) return mission;
-      if (attempt === 2) throw new GeminiError(`Response could not be normalized into ChitForge's required structure: ${problems.slice(0, 3).join('; ')}`, { category: 'schema-failure', rawText: text });
+      if (attempt === 2) throw new GeminiError(`Normalization failure: parsed=${mission.diagnostics?.parseSucceeded}; candidates=${mission.diagnostics?.candidatesFound}; normalized=${usable}; requested=${ctx.poiCount}. ${problems.slice(0, 3).join('; ')}`, { category: 'normalization', rawText: text });
       const repair = await repairJsonWithGemini(apiKey, text, { modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
       text = repair.text;
     } catch (err) {
@@ -123,64 +114,130 @@ async function runFactChecks({ mission, form, apiKey, primaryModel, modelSelecti
 }
 
 function band(value, bands) { return bands.find(([max]) => value <= max)?.[1] || bands.at(-1)[1]; }
-function lengthRange(length) { return band(length, [[20, '10–20 words'], [40, '20–35 words'], [60, '30–50 words'], [80, '45–70 words'], [100, '60–100 words']]); }
+export function lengthInfo(length) { return band(length, [[10, { lines: '≈ 1 line', words: 'approximately 8–15 words', min: 8, max: 15 }], [25, { lines: '≈ 1–2 lines', words: 'approximately 15–25 words', min: 15, max: 25 }], [40, { lines: '≈ 2 lines', words: 'approximately 20–35 words', min: 20, max: 35 }], [55, { lines: '≈ 2–3 lines', words: 'approximately 30–45 words', min: 30, max: 45 }], [70, { lines: '≈ 3 lines', words: 'approximately 40–55 words', min: 40, max: 55 }], [85, { lines: '≈ 3–4 lines', words: 'approximately 50–70 words', min: 50, max: 70 }], [100, { lines: '≈ 4–5 lines', words: 'approximately 65–90 words', min: 65, max: 90 }]]); }
 function aggressionInstruction(value) { return band(value, [[10, 'Use a calm, neutral question with minimal confrontation.'], [30, 'Use a mild challenge that asks for a clear policy explanation.'], [50, 'Use a firm challenge and clearly expose the relevant disagreement.'], [70, 'Use strong direct wording and pressure; ask how the delegation can justify the contradiction.'], [85, 'Use very aggressive but MUN-usable wording. Lead into the contradiction and give little room for vague answers.'], [100, 'Use maximum directness. Lead with the strongest verified contradiction, remove unnecessary diplomatic cushioning, end with a direct challenge, and do not soften the wording. Do not use insults or unsupported accusations.']]); }
 function controversyInstruction(value) { return band(value, [[10, 'Use a normal policy disagreement only.'], [30, 'Use a minor documented inconsistency if available.'], [50, 'Use a clear policy contradiction tied to the agenda.'], [70, 'Use a serious documented contradiction, commitment gap, vote, dispute, or implementation failure.'], [85, 'Prioritize major verified controversies, commitment failures, policy-practice gaps, legal disputes, or financial inconsistencies.'], [100, 'Search for the strongest relevant VERIFIED pressure point available: broken commitments, conflicting statements, voting contradictions, legal disputes, implementation failures, or financial inconsistencies. Never manufacture or exaggerate controversy.']]); }
 function diplomacyInstruction(value) { return band(value, [[10, 'Use blunt, direct wording. Do not add diplomatic cushioning.'], [30, 'Use very direct MUN wording with minimal restraint.'], [50, 'Use normal MUN language with moderate diplomatic restraint.'], [70, 'Use formal language while preserving pressure.'], [85, 'Use highly diplomatic polish without weakening the challenge.'], [100, 'Use maximum diplomatic polish, but preserve the same substantive pressure and direct question. High diplomacy does not reduce pressure.']]); }
-function styleProfile(sliders) { return [`AGGRESSION: ${sliders.aggression}/100 — ${aggressionInstruction(sliders.aggression)}`, `CONTROVERSY: ${sliders.controversy}/100 — ${controversyInstruction(sliders.controversy)}`, `DIPLOMACY: ${sliders.diplomacy}/100 — ${diplomacyInstruction(sliders.diplomacy)}`, `LENGTH: ${sliders.length}/100 — generate each spoken POI in the target range ${lengthRange(sliders.length)}. Do not pad the question.`].join('\n'); }
-
 export function buildMissionPrompt({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount }) {
-  const manualTargets = selectedTargets.map((c) => `${c.name} (${c.iso})`).join(', ') || 'NONE — zero selected targets is valid in Selected + Global Research; research globally.';
-  return `You are ChitForge's MUN tactical POI generation engine. Every POI must be accurate, evidence-based, agenda-relevant, portfolio-aligned, easy to speak aloud, simple in English, concise, hard-hitting, and strategically useful. Do not write generic AI questions. Do not add ceremonial filler. The POI must begin directly with the substantive issue.
+  const manualTargets = selectedTargets.map((c) => `${c.name} (${c.iso})`).join(', ') || 'NONE — target countries are optional; identify useful targets globally if target mode allows.';
+  const info = lengthInfo(sliders.length);
+  return `COMMITTEE:
+${form.committee || 'Unspecified'}
 
-COMMITTEE: ${form.committee || 'Unspecified'}
-AGENDA: ${form.agenda}
-PORTFOLIO: ${form.portfolio}
-TARGETING MODE: ${targetingMode}
-SELECTED TARGETS: ${manualTargets}
-NUMBER OF POIs: ${poiCount}
-AGGRESSION: ${sliders.aggression}/100
-CONTROVERSY: ${sliders.controversy}/100
-DIPLOMACY: ${sliders.diplomacy}/100
-LENGTH: ${sliders.length}/100 (${lengthRange(sliders.length)})
-FOLLOW-UP: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}
+AGENDA:
+${form.agenda}
 
-Generate exactly ${poiCount} distinct POI chits. Do not return fewer. Do not return more. Do not duplicate arguments. Each POI must have a distinct tactical purpose. Each POI should use a different primary pressure point whenever the available evidence allows it. Do not simply rewrite the same question with different wording. Avoid duplicate evidence unless it is necessary for a different argument. The total number of pressure_points across all targets must equal ${poiCount}. If multiple targets are selected, distribute POIs intelligently based on evidence quality and agenda relevance; do not force equal distribution when one target has stronger evidence.
+PORTFOLIO:
+${form.portfolio}
 
-SLIDER BEHAVIORAL INSTRUCTIONS:
-${styleProfile(sliders)}
+TARGETS:
+${manualTargets}
 
-PIPELINE: USER INPUT → BUILD FULL GEMINI PROMPT → PORTFOLIO → FOREIGN POLICY + COMMITTEE INTERESTS → AGENDA RELEVANCE → IDENTIFY PRESSURE POINTS → OPTIONAL TARGET SELECTION → RESEARCH TARGET → GENERATE POI → APPLY SLIDER STYLE → VERIFY EVIDENCE → RETURN STRUCTURED JSON.
+TARGET MODE:
+${targetingMode === 'selected_only' ? 'SELECTED TARGETS ONLY' : 'SELECTED + GLOBAL RESEARCH'}
 
-TARGETING RULES: Required inputs are agenda and portfolio only. Targets are optional. Selected Targets Only means use selected targets only; if none, return no POIs and explain target selection is needed. Selected + Global Research means selected countries are primary targets, while the model may add secondary agenda-relevant countries based on foreign-policy conflict, economic relevance, committee relevance, policy contradictions, international commitments, documented controversies, and pressure points; do not choose merely famous or powerful states. Never target the portfolio country against itself.
+NUMBER OF POIs:
+${poiCount}
 
-PORTFOLIO INTELLIGENCE: Before writing POIs, analyze foreign policy, official positions, committee interests, agenda priorities, economic interests, regional interests, alliances, treaty commitments, UN positions/voting where relevant, official statements, proposals, frameworks, and documented priorities. Determine what the portfolio actually wants, who supports/obstructs it, and what documented pressure points advance the portfolio's legitimate interests.
+AGGRESSION:
+${sliders.aggression}/100
 
-TARGET RESEARCH: For each target, research agenda position, policies, treaty commitments, UN positions/voting, economic role, commitments, contradictions, policy-practice gaps, controversies, legal disputes, implementation failures, and financial/policy inconsistencies. Do not manufacture relevance.
+CONTROVERSY:
+${sliders.controversy}/100
 
-START THE POI DIRECTLY. Never begin with ceremonial phrases such as distinguished delegate, honorable delegation, esteemed delegation, may the delegate, or would the delegation kindly. Use pressure point + contradiction + question. Use simple, spoken English. Avoid academic filler, legalese, repetition, empty rhetoric, and long introductions.
+DIPLOMACY:
+${sliders.diplomacy}/100
 
-When Aggression and Controversy are both high, do not merely use stronger adjectives. Change the strategy: find the strongest verified contradiction and center the POI on it. The objective is a question difficult to answer cleanly, not literally impossible.
+LENGTH:
+${sliders.length}/100
 
-Use Markdown bold for 1–4 important short phrases only, such as the core contradiction, obligation, pressure point, important action, or final demand. Do not bold entire sentences.
+TARGET WORD RANGE:
+${info.words}
 
-EVIDENCE AND LEGAL ACCURACY: Every factual claim used to create pressure must be supported by a real source. Prefer UN, IMF, World Bank, WTO, OECD, governments, treaty databases, official reports, courts, and then Reuters/FT/Bloomberg/AP/BBC/Al Jazeera. Never cite Wikipedia. Never invent citations, URLs, statistics, resolutions, treaty provisions, quotes, votes, cases, statements, or reports. Mark disputed claims DISPUTED. If evidence cannot be verified, do not use the claim. Distinguish binding legal obligation, treaty obligation, UN resolution, political commitment, international principle, recommendation, policy contradiction, documented controversy, allegation, and disputed claim. Do not call anything a legal violation unless evidence supports it.
+TARGET DISPLAY LENGTH:
+${info.lines}
 
-FOLLOW-UP: ${includeFollowUp ? 'Generate expected_evasion and follow_up for each pressure point. The follow-up must return directly to the original pressure point.' : 'Do not generate follow-ups. Set follow_up to null.'}
+FOLLOW-UPS:
+${includeFollowUp ? 'ON' : 'OFF'}
 
-Return STRICT JSON only, no markdown fences, in this schema:
-{"research_summary":"...","portfolio_alignment":"...","portfolioProfile":{"summary":"...","orientation":"...","interests":["..."],"officialPositions":["..."],"economicInterests":["..."],"alliancesOrPartnerships":["..."],"treatyCommitments":["..."],"redLines":["..."],"sources":[{"title":"...","organization":"...","date":"...","url":"...","sourceClassification":"PRIMARY"}]},"recommendedTargets":[{"name":"...","iso":"ISO3","reason":"..."}],"targets":[{"country":"...","iso":"ISO3","reason_for_targeting":"...","pressure_points":[{"title":"...","poi":"...","legal_foundation":"...","evidence":[{"claim":"...","source_name":"...","source_url":"...","sourceClassification":"PRIMARY | HIGH-QUALITY SECONDARY | OTHER"}],"documented_contradiction":"...","tactical_impact":"...","classification":"LEGAL PRESSURE | POLICY CONTRADICTION | COMMITMENT TRAP | VOTING CONTRADICTION | IMPLEMENTATION FAILURE | FINANCIAL CONTRADICTION | POLICY-PRACTICE GAP | ACCOUNTABILITY TRAP","contradictionStrength":0,"agendaRelevanceScore":0,"portfolioAlignmentScore":0,"legalRelevanceScore":0,"expected_evasion":${includeFollowUp ? '"..."' : 'null'},"follow_up":${includeFollowUp ? '"..."' : 'null'}}]}]}`;
-}
+You are an expert competitive Model United Nations strategist.
 
-function buildRevisionPrompt({ form, sliders, includeFollowUp, previous, problems, poiCount }) {
-  return `Return STRICT JSON only, no markdown fences. The generated ChitForge mission failed validation. Problems: ${problems.join('; ')}. Inputs: committee=${form.committee || 'Unspecified'}; agenda=${form.agenda}; portfolio=${form.portfolio}; POI count=${poiCount}; sliders=${JSON.stringify(sliders)}; follow-up=${includeFollowUp ? 'ON' : 'OFF'}. Rewrite the mission JSON to fix these problems while preserving factual accuracy. Do not invent sources. Return exactly ${poiCount} distinct POIs total across targets unless Manual mode has zero targets. Do not duplicate arguments. POIs must start directly, avoid ceremonial openings, use simple concise English, include 1–4 Markdown bold phrases, and meet ${lengthRange(sliders.length)}. Previous JSON: ${JSON.stringify(previous)}`;
+Analyze the represented country's actual foreign-policy interests in relation to the committee and agenda.
+
+Research credible evidence and relevant international legal frameworks.
+
+Generate concise, simple, hard-hitting POIs.
+
+Do not begin with 'Distinguished delegate'.
+
+Begin directly with the substantive question.
+
+Aggression controls confrontation. ${aggressionInstruction(sliders.aggression)}
+
+Controversy controls research depth and political discomfort. ${controversyInstruction(sliders.controversy)}
+
+Diplomacy controls wording. ${diplomacyInstruction(sliders.diplomacy)}
+
+Length controls actual word count. Stay approximately within ${info.words} and ${info.lines}. Do not add filler.
+
+The ideal POI should expose a documented contradiction, obligation, commitment, policy failure or controversy that makes a clean evasive answer difficult.
+
+Do not claim a question is literally impossible to answer.
+
+Do not fabricate:
+- allegations
+- violations
+- statistics
+- resolutions
+- treaties
+- quotations
+- sources
+- scandals
+- government positions
+
+Distinguish allegations from established facts.
+
+Distinguish legally binding obligations from non-binding political commitments.
+
+Use simple but precise English.
+
+Do not write an academic essay.
+
+Do not use ceremonial openings.
+
+Do not add filler.
+
+Target countries are optional. If targets are selected, prioritize them. If no countries are selected, perform global research and identify countries relevant to the agenda, portfolio interests, legal obligations, international commitments, policy contradictions, documented controversies, financial conduct, voting behavior, implementation failures, diplomatic disputes, economic relevance, and committee relevance. If target mode is SELECTED + GLOBAL RESEARCH, selected countries must not prevent broader portfolio-interest analysis.
+
+Use authoritative legal sources where relevant: UN Charter, UNSC resolutions, UNGA resolutions, ICJ judgments, treaties, WTO agreements, IMF/World Bank documents, G20 Common Framework, Paris Club principles, Addis Ababa Action Agenda, official government sources, and official court records. Do NOT call every UNGA resolution legally binding. Use LEGAL VIOLATION only where justified; otherwise use LEGAL CONCERN or POLICY CONTRADICTION.
+
+Use reputable external sources for documented controversies: Reuters, AP, Financial Times, Bloomberg, BBC, Al Jazeera, major established newspapers, credible investigative organizations, academic publications, and established research institutions. Avoid random blogs, unsourced sites, anonymous claims, social media as primary evidence, AI-generated sources, and Wikipedia as primary evidence.
+
+Generate exactly ${poiCount} distinct POIs. No duplicates. Each POI should preferably attack a different contradiction, commitment, legal issue, evidence point, implementation failure, policy issue, or financial issue.
+
+Important concepts may be emphasized with Markdown-style bold markers around short phrases only.
+
+If FOLLOW-UPS is OFF, set followUp to null for every POI. If ON, generate one concise follow-up that anticipates an evasive answer and presses the same issue from another angle.
+
+Return ONLY the requested structured response.
+Do not include introductory prose.
+Do not use Markdown code fences.
+Use valid JSON.
+Use double quotes.
+Do not use comments.
+Do not use trailing commas.
+Use null for optional values.
+Follow the provided schema.
+
+Required JSON shape:
+{"pois":[{"target":"","question":"","legalFoundation":"","evidence":[{"claim":"","sourceName":"","sourceUrl":""}],"documentedIssue":"","classification":"","tacticalImpact":"","followUp":null}]}`;
 }
 
 async function generateMissingPois({ form, sliders, selectedTargets, targetingMode, includeFollowUp, mission, missing, poiCount, modelSelection }) {
   const prompt = buildMissionPrompt({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount: missing }) + `\n\nAlready generated POIs to avoid duplicating: ${JSON.stringify(mission.chits.map((chit) => chit.poi))}. Generate exactly ${missing} additional distinct replacement POI chits only.`;
   const response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
   const text = response.text;
-  const extra = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: missing, targetingMode }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
+  const extra = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: missing, targetingMode, lengthInfo: lengthInfo(sliders.length) }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   return { ...mission, chits: [...mission.chits, ...extra.chits].slice(0, poiCount), recommendedTargets: [...(mission.recommendedTargets || []), ...(extra.recommendedTargets || [])] };
 }
 
@@ -189,6 +246,6 @@ async function replaceDuplicatePois({ form, sliders, includeFollowUp, mission, d
   const prompt = `Return STRICT JSON only, no markdown fences. Generate exactly ${duplicates.length} distinct replacement POI chits. Do not duplicate these POIs: ${JSON.stringify(keep.map((chit) => chit.poi))}. Agenda: ${form.agenda}. Portfolio: ${form.portfolio}. Sliders: ${JSON.stringify(sliders)}. Follow-up: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}. Use the same ChitForge schema with targets[].pressure_points[].`;
   const response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
   const text = response.text;
-  const replacement = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: duplicates.length, targetingMode: 'replacement' }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
+  const replacement = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: duplicates.length, targetingMode: 'replacement', lengthInfo: lengthInfo(sliders.length) }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   return { ...mission, chits: [...keep, ...replacement.chits].slice(0, poiCount) };
 }
