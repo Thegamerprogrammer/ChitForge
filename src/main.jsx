@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { createLiquidGlassMap } from './liquidGlass.js';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { LIQUID_GLASS_PROFILES, createLiquidGlassMap } from './liquidGlass.js';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { WorldMap } from './map.jsx';
@@ -42,6 +42,8 @@ function App() {
   const [modelInfo, setModelInfo] = useState(null);
   const [modelLoading, setModelLoading] = useState(false);
   const [customBackground, setCustomBackground] = useState('');
+  const customBackgroundRef = useRef('');
+  useLiquidGlassResizeObserver();
 
   const updateForm = (key, value) => {
     const next = { ...form, [key]: value };
@@ -119,7 +121,7 @@ function App() {
     <div className="ambientBackdrop" style={customBackground ? { '--custom-background': `url(${customBackground})` } : undefined} />
     <header className="hero glass-panel">
       <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
-      <div className="heroActions"><label className="backgroundPicker">Custom background<input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) setCustomBackground(URL.createObjectURL(file)); }} /></label><button onClick={() => setCustomBackground('')} disabled={!customBackground}>Reset Background</button><button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button></div>
+      <div className="heroActions"><label className="backgroundPicker">Custom background<input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); const nextUrl = URL.createObjectURL(file); customBackgroundRef.current = nextUrl; setCustomBackground(nextUrl); }} /></label><button onClick={() => { if (customBackgroundRef.current) URL.revokeObjectURL(customBackgroundRef.current); customBackgroundRef.current = ''; setCustomBackground(''); }} disabled={!customBackground}>Reset Background</button><button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button></div>
     </header>
     <main className="layout">
       <section className="panel controls">
@@ -128,12 +130,12 @@ function App() {
         <label>Agenda / Topic<textarea value={form.agenda} onChange={(e) => updateForm('agenda', e.target.value)} placeholder="e.g. Sovereign debt restructuring and development finance" /></label>
         <label>Portfolio / Country<input value={form.portfolio} onChange={(e) => updateForm('portfolio', e.target.value)} placeholder="e.g. Indonesia or IDN" /></label>
         <label>Gemini API Key<div className="keyRow"><input type={showKey ? 'text' : 'password'} autoComplete="off" value={form.apiKey} onChange={(e) => updateForm('apiKey', e.target.value)} placeholder="Stored for this session by default" /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button></div></label>
-        <div className="row"><label className="check"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /> Save beyond this session</label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear Key</button></div>
+        <div className="row"><label className="check switchField"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /><span className="glassSwitch" aria-hidden="true"><i /></span><span>Save beyond this session</span></label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear Key</button></div>
 
         <h2>AI Model</h2>
         <div className="modelBox" onFocus={() => !modelCatalog && form.apiKey.trim() && refreshModels(false)}>
           <select value={modelMode} onChange={(e) => setModelMode(e.target.value)}>
-            <option value={MODEL_SELECTION_MODES.BEST}>✨ Best Available</option>
+            <option value={MODEL_SELECTION_MODES.BEST}>Best Available</option>
             <option value={MODEL_SELECTION_MODES.ROTATION}>Smart Rotation</option>
             <option value={MODEL_SELECTION_MODES.MANUAL}>Manual</option>
           </select>
@@ -146,7 +148,7 @@ function App() {
         <h2>Targeting Mode</h2>
         <div className="modes">{modes.map(([id, label, help]) => <label key={id} className="mode"><input type="radio" checked={mode === id} onChange={() => setMode(id)} /> <b>{label}</b><small>{help}</small></label>)}</div>
         <label>POIs to Generate<input type="number" min="1" max="20" value={poiCount} onChange={(e) => setPoiCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
-        <label className="check"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /> Generate Follow-Up</label>
+        <label className="check switchField"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /><span className="glassSwitch" aria-hidden="true"><i /></span><span>Generate Follow-Up</span></label>
         <h2>POI Type</h2>
         <div className="typeGrid" role="group" aria-label="POI type selection">{POI_TYPES.map((type) => <label key={type} className={`typeChip ${poiTypes.includes(type) ? 'active' : ''}`}>
           <input type="checkbox" checked={poiTypes.includes(type)} onChange={() => setPoiTypes((current) => {
@@ -158,7 +160,7 @@ function App() {
         </label>)}</div>
 
         <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'GLOBAL RESEARCH ENABLED unless Selected Targets Only is used.'}</div>
-        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider" style={{ '--value': `${sliders[key]}%` }}><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>; })}
+        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider glassSlider" style={{ '--value': `${sliders[key]}%` }}><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<div className="glassSliderShell"><i className="glassSliderFill" /><input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></div></label>; })}
         <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing Tactical POIs…' : 'Generate Tactical POI Array'}</button>
         {error && <ErrorBox error={error} />}
       </section>
@@ -214,24 +216,40 @@ function ChitCard({ chit, number, onCopy, onFollowUp, onRegenerate }) {
 }
 
 
+
+function useLiquidGlassResizeObserver() {
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    let frame = 0;
+    const update = (entries) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        entries.forEach((entry) => {
+          const { width, height } = entry.contentRect;
+          entry.target.style.setProperty('--glass-width', `${Math.round(width)}px`);
+          entry.target.style.setProperty('--glass-height', `${Math.round(height)}px`);
+        });
+      });
+    };
+    const observer = new ResizeObserver(update);
+    document.querySelectorAll('.panel, .chit, .poiWindow, .sourceCard, .modelBox, .mode, .recommendation, .progress, .mapWrap, button, input, textarea, select, .glassSliderShell, .glassSwitch').forEach((node) => observer.observe(node));
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, []);
+}
+
 function LiquidGlassFilters() {
   const filters = useMemo(() => {
     if (typeof document === 'undefined') return [];
-    return [
-      ['liquid-glass-filter-panel', createLiquidGlassMap({ width: 420, height: 260, bezelWidth: 42, glassThickness: 34, surface: 'convex-squircle', specularSaturation: 6 })],
-      ['liquid-glass-filter-button', createLiquidGlassMap({ width: 180, height: 64, bezelWidth: 22, glassThickness: 22, surface: 'convex-squircle', specularSaturation: 8 })],
-      ['liquid-glass-filter-input', createLiquidGlassMap({ width: 320, height: 58, bezelWidth: 20, glassThickness: 18, surface: 'convex-squircle', specularSaturation: 5 })],
-      ['liquid-glass-filter-switch', createLiquidGlassMap({ width: 72, height: 40, bezelWidth: 18, glassThickness: 18, surface: 'lip', specularSaturation: 7 })],
-    ];
+    return Object.entries(LIQUID_GLASS_PROFILES).map(([name, profile]) => [`liquid-glass-filter-${name}`, createLiquidGlassMap(profile)]);
   }, []);
 
   return <svg className="liquidFilterSvg" width="0" height="0" aria-hidden="true" focusable="false" colorInterpolationFilters="sRGB">
-    <defs>{filters.map(([id, map]) => <filter key={id} id={id} x="0" y="0" width={map.width} height={map.height} filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">
-      <feImage href={map.href} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="displacement_map" />
+    <defs>{filters.map(([id, map]) => <filter key={id} id={id} x="-20%" y="-20%" width="140%" height="140%" filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">
+      <feImage href={map.displacementHref} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="displacement_map" />
       <feDisplacementMap in="SourceGraphic" in2="displacement_map" scale={map.scale} xChannelSelector="R" yChannelSelector="G" result="refracted" />
-      <feImage href={map.href} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="specular_map" />
-      <feColorMatrix in="specular_map" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 1.9 -0.9 0" result="specular" />
-      <feBlend in="refracted" in2="specular" mode="screen" />
+      <feImage href={map.specularHref} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="specular_map" />
+      <feGaussianBlur in="specular_map" stdDeviation={map.blurLevel} result="specular_soft" />
+      <feBlend in="refracted" in2="specular_soft" mode="screen" />
     </filter>)}</defs>
   </svg>;
 }

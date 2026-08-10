@@ -144,3 +144,49 @@ a { color: #cfe5ff; }
 @media (max-width: 1180px) { .layout { grid-template-columns: minmax(300px, 390px) 1fr; } .queue { grid-column: 1 / -1; } .stageList { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { :root { --glass-radius: 24px; } .hero, .arrayHeader { display: block; } .hero, .layout, .intel, .poiWindow { margin-left: 14px; margin-right: 14px; padding-left: 16px; padding-right: 16px; } .layout { grid-template-columns: 1fr; padding: 0 0 24px; } .heroActions, .actions { justify-content: flex-start; } .mapTools { position: static; margin-bottom: 10px; } .mapPanel, .mapWrap { min-height: auto; } .typeGrid { grid-template-columns: 1fr 1fr; } .stageList { grid-template-columns: 1fr; } blockquote { font-size: 18px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; } }
+
+/* Kube-inspired component refinement: visible environment + refractive/specular controls */
+:root {
+  --glass-surface: rgba(255,255,255,.145);
+  --glass-surface-hover: rgba(255,255,255,.205);
+  --glass-surface-active: rgba(255,255,255,.1);
+  --glass-border: rgba(255,255,255,.26);
+  --glass-highlight: rgba(255,255,255,.86);
+  --glass-refraction: url(#liquid-glass-filter-panel) saturate(1.24) brightness(1.04);
+  --glass-button-refraction: url(#liquid-glass-filter-button) saturate(1.28) brightness(1.05);
+  --glass-input-refraction: url(#liquid-glass-filter-input) saturate(1.18) brightness(1.03);
+  --glass-slider-refraction: url(#liquid-glass-filter-slider) saturate(1.28) brightness(1.04);
+  --glass-switch-refraction: url(#liquid-glass-filter-switch) saturate(1.24) brightness(1.04);
+}
+body { background: transparent; }
+body::before { opacity: .72; background: radial-gradient(circle at 18% 8%, rgba(255,255,255,.28), transparent 26%), radial-gradient(circle at 80% 4%, rgba(130,178,232,.22), transparent 31%), radial-gradient(circle at 34% 86%, rgba(255,255,255,.13), transparent 32%), linear-gradient(135deg, rgba(5,7,10,.44), rgba(10,13,18,.34)); }
+.ambientBackdrop { opacity: 1; filter: blur(8px) saturate(1.02) brightness(.82) contrast(1.06); transform: scale(1.015); background-color: #111821; background-image: var(--custom-background), radial-gradient(circle at 20% 12%, rgba(255,255,255,.18), transparent 24%), radial-gradient(circle at 76% 18%, rgba(130,178,232,.2), transparent 30%), linear-gradient(135deg, #1a212b, #080b0f 58%, #222b36); background-blend-mode: normal, screen, screen, normal; }
+.panel, .chit, .poiWindow, .sourceCard, .modelBox, .mode, .recommendation, .progress, .tooltip, .mapWrap, .hero { background: linear-gradient(145deg, rgba(255,255,255,.18), rgba(255,255,255,.055) 46%, rgba(255,255,255,.09)); border-color: var(--glass-border); backdrop-filter: var(--glass-refraction); -webkit-backdrop-filter: var(--glass-refraction); box-shadow: 0 34px 100px rgba(0,0,0,.36), 0 4px 18px rgba(4,8,14,.22), inset 0 1px rgba(255,255,255,.42), inset 0 -1px rgba(255,255,255,.12); }
+.panel::after, .chit::after, .poiWindow::after, .sourceCard::after, .modelBox::after, .mode::after, .recommendation::after, .progress::after, .mapWrap::after, .hero::after, button::after, .backgroundPicker::after, .glassSliderShell::after, .glassSwitch::after { content: ""; position: absolute; inset: 1px; pointer-events: none; border-radius: inherit; background: linear-gradient(118deg, rgba(255,255,255,.52), rgba(255,255,255,.06) 28%, transparent 44%, rgba(255,255,255,.18) 72%, rgba(255,255,255,.04)), radial-gradient(circle at 18% 5%, rgba(255,255,255,.36), transparent 26%); opacity: .58; mix-blend-mode: screen; }
+button, .backgroundPicker { backdrop-filter: var(--glass-button-refraction); -webkit-backdrop-filter: var(--glass-button-refraction); overflow: hidden; }
+input, textarea, select { backdrop-filter: var(--glass-input-refraction); -webkit-backdrop-filter: var(--glass-input-refraction); }
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, rgba(235,245,255,.85) 50%), linear-gradient(135deg, rgba(235,245,255,.85) 50%, transparent 50%), linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.055)); background-position: calc(100% - 19px) 55%, calc(100% - 13px) 55%, 0 0; background-size: 6px 6px, 6px 6px, 100% 100%; background-repeat: no-repeat; padding-right: 38px; }
+.switchField { position: relative; min-height: 44px; cursor: pointer; text-transform: none !important; letter-spacing: 0 !important; color: var(--text-secondary) !important; }
+.switchField > input[type=checkbox] { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.glassSwitch { --switch-x: 3px; position: relative; display: inline-flex; align-items: center; width: 76px; height: 44px; flex: 0 0 76px; border-radius: 999px; border: 1px solid rgba(255,255,255,.26); background: linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.045)), rgba(18,23,31,.28); box-shadow: 0 18px 44px rgba(0,0,0,.3), inset 0 1px rgba(255,255,255,.34), inset 0 -16px 22px rgba(0,0,0,.16); backdrop-filter: var(--glass-switch-refraction); -webkit-backdrop-filter: var(--glass-switch-refraction); overflow: hidden; transition: background .28s cubic-bezier(.2,.8,.2,1), box-shadow .28s, border-color .28s; }
+.glassSwitch i { position: absolute; left: 3px; top: 3px; width: 38px; height: 38px; border-radius: 50%; background: radial-gradient(circle at 34% 24%, white, rgba(236,246,255,.78) 40%, rgba(185,205,226,.46)); border: 1px solid rgba(255,255,255,.58); box-shadow: 0 10px 25px rgba(0,0,0,.34), inset 0 1px rgba(255,255,255,.85), inset 0 -10px 16px rgba(120,150,185,.16); transition: transform .32s cubic-bezier(.2,.8,.2,1), filter .32s; }
+.switchField > input[type=checkbox]:checked + .glassSwitch { background: linear-gradient(145deg, rgba(215,236,255,.32), rgba(157,201,255,.14)), rgba(255,255,255,.07); border-color: rgba(210,235,255,.52); box-shadow: 0 18px 50px rgba(55,105,165,.24), inset 0 1px rgba(255,255,255,.48), inset 0 -16px 22px rgba(20,60,100,.08); }
+.switchField > input[type=checkbox]:checked + .glassSwitch i { transform: translateX(32px); filter: brightness(1.06); }
+.switchField > input[type=checkbox]:focus-visible + .glassSwitch { outline: 2px solid rgba(157,201,255,.9); outline-offset: 4px; }
+.check input[type=checkbox]::after, .check input[type=checkbox]:checked::after { content: none; }
+.glassSlider { border: 0; padding: 0; background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.glassSlider > span, .glassSlider > small { padding-inline: 3px; }
+.glassSliderShell { position: relative; height: 58px; margin-top: 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.045)); box-shadow: 0 18px 46px rgba(0,0,0,.26), inset 0 1px rgba(255,255,255,.38), inset 0 -18px 28px rgba(0,0,0,.16); backdrop-filter: var(--glass-slider-refraction); -webkit-backdrop-filter: var(--glass-slider-refraction); overflow: hidden; }
+.glassSliderFill { position: absolute; inset: 7px auto 7px 7px; width: max(42px, calc(var(--value, 0%) - 4px)); border-radius: 999px; background: linear-gradient(90deg, rgba(210,232,255,.28), rgba(255,255,255,.62)); box-shadow: inset 0 1px rgba(255,255,255,.42), 0 8px 26px rgba(157,201,255,.16); transition: width .18s cubic-bezier(.2,.8,.2,1); }
+.glassSlider input[type=range] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: .001; cursor: pointer; }
+.glassSliderShell::before { content: ""; position: absolute; top: 9px; left: calc(var(--value, 0%) - 18px); width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 34% 24%, #fff, rgba(232,244,255,.82) 42%, rgba(126,160,196,.5)); border: 1px solid rgba(255,255,255,.6); box-shadow: 0 12px 28px rgba(0,0,0,.34), inset 0 1px rgba(255,255,255,.86), inset 0 -12px 18px rgba(95,125,155,.14); transition: left .18s cubic-bezier(.2,.8,.2,1), transform .18s; z-index: 2; }
+.glassSliderShell:hover::before { transform: scale(1.04); }
+.glassSliderShell:has(input:active)::before { transform: scale(.96); }
+.glassSliderShell:has(input:focus-visible) { outline: 2px solid rgba(157,201,255,.9); outline-offset: 4px; }
+.typeChip { position: relative; overflow: hidden; border-radius: 999px; backdrop-filter: var(--glass-button-refraction); -webkit-backdrop-filter: var(--glass-button-refraction); }
+.typeChip input[type=checkbox] { appearance: none; width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,.38); background: rgba(255,255,255,.08); }
+.typeChip.active input[type=checkbox] { background: radial-gradient(circle, white 0 35%, rgba(157,201,255,.8) 36%); box-shadow: 0 0 12px rgba(157,201,255,.28); }
+.mapWrap { background: radial-gradient(circle at 50% 48%, rgba(157,201,255,.16), transparent 43%), rgba(255,255,255,.055); }
+.sourceLink { display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 8px 12px; background: rgba(255,255,255,.08); backdrop-filter: var(--glass-button-refraction); -webkit-backdrop-filter: var(--glass-button-refraction); }
+@supports not selector(:has(*)) { .glassSliderShell:focus-within { outline: 2px solid rgba(157,201,255,.9); outline-offset: 4px; } }
+@media (prefers-reduced-motion: reduce) { body::before { animation: none !important; } .ambientBackdrop { transform: none; } }

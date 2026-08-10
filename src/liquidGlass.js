@@ -1,8 +1,16 @@
-const cache = new Map();
+const mapCache = new Map();
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const smootherstep = (x) => x * x * x * (x * (x * 6 - 15) + 10);
 const mix = (a, b, t) => a * (1 - t) + b * t;
+
+export const LIQUID_GLASS_PROFILES = {
+  panel: { width: 512, height: 320, bezelWidth: 48, glassThickness: 44, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 8, specularOpacity: 0.42, blurLevel: 0.65 },
+  button: { width: 220, height: 72, bezelWidth: 24, glassThickness: 27, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 9, specularOpacity: 0.48, blurLevel: 0.2 },
+  input: { width: 380, height: 64, bezelWidth: 22, glassThickness: 22, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 5, specularOpacity: 0.22, blurLevel: 0.9 },
+  slider: { width: 360, height: 64, bezelWidth: 22, glassThickness: 28, refractiveIndex: 1.5, surface: 'convex-squircle', lightAngle: -60, specularSaturation: 7, specularOpacity: 0.4, blurLevel: 0 },
+  switch: { width: 78, height: 44, bezelWidth: 20, glassThickness: 25, refractiveIndex: 1.5, surface: 'lip', lightAngle: -60, specularSaturation: 6, specularOpacity: 0.5, blurLevel: 0.2 },
+};
 
 export function surfaceHeight(x, surface = 'convex-squircle') {
   const n = clamp(x, 0, 1);
@@ -14,93 +22,114 @@ export function surfaceHeight(x, surface = 'convex-squircle') {
   return convexSquircle;
 }
 
+function normalize2d(vector) {
+  const length = Math.hypot(vector.x, vector.y) || 1;
+  return { x: vector.x / length, y: vector.y / length };
+}
+
 function normalAt(distance, surface) {
   const delta = 0.001;
   const previous = surfaceHeight(distance - delta, surface);
   const next = surfaceHeight(distance + delta, surface);
   const derivative = (next - previous) / (2 * delta);
-  const length = Math.hypot(-derivative, 1) || 1;
-  return { x: -derivative / length, y: 1 / length };
+  return normalize2d({ x: -derivative, y: 1 });
 }
 
 function refract(incoming, normal, refractiveIndex = 1.5) {
-  const n1 = 1;
-  const eta = n1 / refractiveIndex;
-  const dot = -(incoming.x * normal.x + incoming.y * normal.y);
-  const k = 1 - eta * eta * (1 - dot * dot);
+  const eta = 1 / refractiveIndex;
+  const cosi = -(incoming.x * normal.x + incoming.y * normal.y);
+  const k = 1 - eta * eta * (1 - cosi * cosi);
   if (k < 0) return { x: incoming.x, y: incoming.y };
-  return {
-    x: eta * incoming.x + (eta * dot - Math.sqrt(k)) * normal.x,
-    y: eta * incoming.y + (eta * dot - Math.sqrt(k)) * normal.y,
-  };
+  return normalize2d({
+    x: eta * incoming.x + (eta * cosi - Math.sqrt(k)) * normal.x,
+    y: eta * incoming.y + (eta * cosi - Math.sqrt(k)) * normal.y,
+  });
 }
 
-export function createLiquidGlassMap({
-  width = 320,
-  height = 160,
-  bezelWidth = 32,
-  glassThickness = 36,
-  refractiveIndex = 1.5,
-  surface = 'convex-squircle',
-  lightAngle = -60,
-  specularSaturation = 6,
-} = {}) {
-  const key = JSON.stringify({ width, height, bezelWidth, glassThickness, refractiveIndex, surface, lightAngle, specularSaturation });
-  if (cache.has(key)) return cache.get(key);
+function roundedRectSignedDistance(x, y, width, height, radius) {
+  const px = Math.abs(x - width / 2) - (width / 2 - radius);
+  const py = Math.abs(y - height / 2) - (height / 2 - radius);
+  return Math.min(Math.max(px, py), 0) + Math.hypot(Math.max(px, 0), Math.max(py, 0));
+}
 
+function edgeAxis(x, y, width, height, radius) {
+  const px = Math.abs(x - width / 2) - (width / 2 - radius);
+  const py = Math.abs(y - height / 2) - (height / 2 - radius);
+  const sx = Math.sign(x - width / 2) || 1;
+  const sy = Math.sign(y - height / 2) || 1;
+  if (px > 0 && py > 0) return normalize2d({ x: px * sx, y: py * sy });
+  if (px > py) return { x: sx, y: 0 };
+  return { x: 0, y: sy };
+}
+
+function canvasToDataUrl(width, height, paintPixel) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const image = ctx.createImageData(width, height);
   const data = image.data;
-  const maxRadius = Math.min(width, height) / 2;
-  const radius = Math.min(maxRadius, Math.max(12, bezelWidth * 1.65));
+  for (let i = 0; i < width * height; i += 1) {
+    const p = i * 4;
+    const rgba = paintPixel(i);
+    data[p] = rgba.r;
+    data[p + 1] = rgba.g;
+    data[p + 2] = rgba.b;
+    data[p + 3] = rgba.a;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+export function createLiquidGlassMap(profile = {}) {
+  const config = { ...LIQUID_GLASS_PROFILES.panel, ...profile };
+  const { width, height, bezelWidth, glassThickness, refractiveIndex, surface, lightAngle, specularSaturation, specularOpacity } = config;
+  const key = JSON.stringify(config);
+  if (mapCache.has(key)) return mapCache.get(key);
+
+  const radius = Math.min(Math.min(width, height) / 2, Math.max(14, bezelWidth * 1.72));
   const bezel = Math.max(1, Math.min(bezelWidth, radius));
-  const light = { x: Math.cos((lightAngle * Math.PI) / 180), y: Math.sin((lightAngle * Math.PI) / 180) };
-  let maxDisplacement = 1;
+  const light = normalize2d({ x: Math.cos((lightAngle * Math.PI) / 180), y: Math.sin((lightAngle * Math.PI) / 180) });
   const vectors = [];
+  let maxDisplacement = 1;
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const cx = Math.abs(x - width / 2) - (width / 2 - radius);
-      const cy = Math.abs(y - height / 2) - (height / 2 - radius);
-      const ox = Math.max(cx, 0);
-      const oy = Math.max(cy, 0);
-      const outsideCorner = Math.hypot(ox, oy);
-      const inside = Math.min(Math.max(cx, cy), 0) + outsideCorner;
-      const distanceFromEdge = clamp(radius - inside, 0, bezel);
-      const bezelProgress = clamp(distanceFromEdge / bezel, 0, 1);
-      let axisX = 0;
-      let axisY = 0;
-      if (cx > cy && cx > 0) axisX = Math.sign(x - width / 2);
-      else if (cy > 0) axisY = Math.sign(y - height / 2);
-      else if (outsideCorner > 0) { axisX = ox / outsideCorner * Math.sign(x - width / 2); axisY = oy / outsideCorner * Math.sign(y - height / 2); }
-      else if (Math.abs(cx) > Math.abs(cy)) axisX = Math.sign(x - width / 2);
-      else axisY = Math.sign(y - height / 2);
-
-      const normal = normalAt(bezelProgress, surface);
-      const directionNormal = { x: axisX * Math.abs(normal.x), y: axisY * Math.abs(normal.x) };
-      const refracted = refract({ x: 0, y: 1 }, { x: directionNormal.x, y: normal.y }, refractiveIndex);
-      const displacement = (1 - bezelProgress) * glassThickness * 0.26 + Math.abs(refracted.x) * glassThickness;
-      const eased = surface === 'lip' ? Math.sin(bezelProgress * Math.PI) : 1 - smootherstep(bezelProgress);
-      const dx = -axisX * displacement * eased;
-      const dy = -axisY * displacement * eased;
-      const specular = clamp((directionNormal.x * light.x + directionNormal.y * light.y) * specularSaturation, 0, 1) * (1 - bezelProgress);
+      const distance = roundedRectSignedDistance(x + 0.5, y + 0.5, width, height, radius);
+      const distanceFromEdge = clamp(radius - distance, 0, bezel);
+      const progressToFlatCenter = clamp(distanceFromEdge / bezel, 0, 1);
+      const axis = edgeAxis(x + 0.5, y + 0.5, width, height, radius);
+      const normal = normalAt(progressToFlatCenter, surface);
+      const surfaceNormal = normalize2d({ x: axis.x * Math.abs(normal.x), y: axis.y * Math.abs(normal.x) });
+      const ray = refract({ x: 0, y: 1 }, { x: surfaceNormal.x, y: normal.y }, refractiveIndex);
+      const bezelFalloff = surface === 'lip' ? Math.sin(progressToFlatCenter * Math.PI) : 1 - smootherstep(progressToFlatCenter);
+      const edgeCompression = surface === 'concave' ? -1 : 1;
+      const magnitude = (Math.abs(ray.x) * glassThickness + (1 - progressToFlatCenter) * glassThickness * 0.22) * bezelFalloff;
+      const dx = -axis.x * magnitude * edgeCompression;
+      const dy = -axis.y * magnitude * edgeCompression;
+      const facingLight = clamp(surfaceNormal.x * light.x + surfaceNormal.y * light.y, 0, 1);
+      const rim = clamp(1 - progressToFlatCenter, 0, 1);
+      const specular = clamp((facingLight ** 2.2) * specularSaturation * rim * specularOpacity, 0, 1);
       maxDisplacement = Math.max(maxDisplacement, Math.abs(dx), Math.abs(dy));
       vectors.push({ dx, dy, specular });
     }
   }
 
-  vectors.forEach(({ dx, dy, specular }, i) => {
-    const p = i * 4;
-    data[p] = clamp(Math.round(128 + (dx / maxDisplacement) * 127), 0, 255);
-    data[p + 1] = clamp(Math.round(128 + (dy / maxDisplacement) * 127), 0, 255);
-    data[p + 2] = clamp(Math.round(128 + specular * 127), 0, 255);
-    data[p + 3] = 255;
+  const displacementHref = canvasToDataUrl(width, height, (i) => {
+    const vector = vectors[i];
+    return {
+      r: clamp(Math.round(128 + (vector.dx / maxDisplacement) * 127), 0, 255),
+      g: clamp(Math.round(128 + (vector.dy / maxDisplacement) * 127), 0, 255),
+      b: 128,
+      a: 255,
+    };
   });
-  ctx.putImageData(image, 0, 0);
-  const result = { href: canvas.toDataURL('image/png'), scale: Math.round(maxDisplacement * 10) / 10, width, height };
-  cache.set(key, result);
+  const specularHref = canvasToDataUrl(width, height, (i) => {
+    const alpha = clamp(Math.round(vectors[i].specular * 255), 0, 255);
+    return { r: 255, g: 255, b: 255, a: alpha };
+  });
+
+  const result = { displacementHref, specularHref, scale: Math.round(maxDisplacement * 10) / 10, width, height, blurLevel: config.blurLevel };
+  mapCache.set(key, result);
   return result;
 }
