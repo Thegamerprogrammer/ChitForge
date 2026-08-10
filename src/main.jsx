@@ -11,9 +11,8 @@ import { renderMarkdownBold } from './format.js';
 
 const defaultSliders = { aggression: 0, controversy: 0, diplomacy: 0, length: 0 };
 const modes = [
-  ['hybrid', 'Hybrid', 'AI recommends targets; you can approve/remove map selections.'],
-  ['automatic', 'Automatic', 'AI chooses agenda-relevant targets when none are selected.'],
-  ['manual', 'Manual', 'Use only countries selected on the real world map.'],
+  ['selected_global', 'Selected + Global Research', 'Selected countries are primary targets; AI may add stronger agenda-relevant targets.'],
+  ['selected_only', 'Selected Targets Only', 'Use only countries selected on the real world map.'],
 ];
 const progressStages = ['RESEARCHING PORTFOLIO', 'ANALYZING TARGETS', 'IDENTIFYING PRESSURE POINTS', 'GENERATING POIs', 'VALIDATING EVIDENCE', 'FINALIZING TACTICAL BRIEF'];
 
@@ -24,7 +23,7 @@ function App() {
   const [sliders, setSliders] = useState(defaultSliders);
   const [poiCount, setPoiCount] = useState(5);
   const [selected, setSelected] = useState([]);
-  const [mode, setMode] = useState('hybrid');
+  const [mode, setMode] = useState('selected_global');
   const [includeFollowUp, setIncludeFollowUp] = useState(false);
   const [portfolioProfile, setPortfolioProfile] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
@@ -72,8 +71,8 @@ function App() {
       setRecommendations(result.recommendedTargets || []);
       setChits(result.chits);
       setModelInfo(result.modelInfo || null);
-      if (result.chits.length < poiCount && mode !== 'manual') setError({ message: `${result.chits.length} / ${poiCount} POIs generated. Gemini did not return enough distinct, defensible POIs after retry attempts. No duplicates were inserted.` });
-      if (!result.chits.length) setError({ message: mode === 'manual' && !selected.length ? 'Manual mode needs at least one selected target. Zero selected targets is valid in Hybrid or Automatic mode.' : 'No defensible targets were discovered. Try Hybrid or Manual mode, or refine the agenda.' });
+      if (result.chits.length < poiCount && mode !== 'selected_only') setError({ message: `${result.chits.length} / ${poiCount} POIs generated. Gemini did not return enough distinct, defensible POIs after retry attempts. No duplicates were inserted.` });
+      if (!result.chits.length) setError({ message: mode === 'selected_only' && !selected.length ? 'Selected Targets Only needs at least one selected target. Zero selected targets is valid in Selected + Global Research mode.' : 'No defensible targets were discovered. Try Selected + Global Research or refine the agenda.' });
     } catch (err) {
       showError(err);
     } finally {
@@ -103,7 +102,7 @@ function App() {
   const copyText = (text) => navigator.clipboard?.writeText(text).catch(() => setError({ message: 'Clipboard access was blocked by the browser.' }));
   const copyAll = () => copyText(chits.map((chit, index) => `POI ${index + 1} — ${chit.target}\n${chit.poi}`).join('\n\n'));
   const exportBrief = (items = chits) => {
-    try { downloadBrief({ form, sliders, portfolioProfile, chits: items, poiCount, selectedTargets: selected }); }
+    try { downloadBrief({ form, sliders, portfolioProfile, chits: items, poiCount, selectedTargets: selected, modelInfo, targetMode: mode }); }
     catch { setError({ message: 'DOCX export failed. Please try again in a modern browser.' }); }
   };
 
@@ -129,7 +128,7 @@ function App() {
             <option value={MODEL_SELECTION_MODES.MANUAL}>Manual</option>
           </select>
           {modelMode === MODEL_SELECTION_MODES.MANUAL && <select value={manualModelId} onChange={(e) => setManualModelId(e.target.value)} onFocus={() => !modelCatalog && refreshModels(false)}>
-            {(modelCatalog?.compatible || []).map((m) => <option key={m.id} value={m.id}>{m.displayName} — ✓ Structured JSON {m.verified ? 'Verified' : 'API Verified'}</option>)}
+            {(modelCatalog?.compatible || []).map((m) => <option key={m.id} value={m.id}>{m.displayName} — ✓ Text generation · JSON recovery</option>)}
           </select>}
           <div className="row"><button type="button" onClick={() => refreshModels(false)} disabled={modelLoading}>{modelLoading ? 'Refreshing…' : 'Refresh Models'}</button><button type="button" onClick={() => refreshModels(true)} disabled={modelLoading}>Refresh Model Capabilities</button></div>
           <ModelStatus modelInfo={modelInfo} modelCatalog={modelCatalog} modelMode={modelMode} />
@@ -138,7 +137,7 @@ function App() {
         <div className="modes">{modes.map(([id, label, help]) => <label key={id} className="mode"><input type="radio" checked={mode === id} onChange={() => setMode(id)} /> <b>{label}</b><small>{help}</small></label>)}</div>
         <label>POIs to Generate<input type="number" min="1" max="20" value={poiCount} onChange={(e) => setPoiCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
         <label className="check"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /> Generate Follow-Up</label>
-        <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'AUTO-DISCOVERY ENABLED when Automatic or Hybrid mode is used.'}</div>
+        <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'GLOBAL RESEARCH ENABLED unless Selected Targets Only is used.'}</div>
         {Object.keys(sliders).map((key) => <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span><input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>)}
         <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing Tactical POIs…' : 'Generate Tactical POI Array'}</button>
         {error && <ErrorBox error={error} />}
@@ -147,7 +146,7 @@ function App() {
       <aside className="panel queue"><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} />}</aside>
     </main>
     {portfolioProfile && <section className="panel intel"><h2>Portfolio Intelligence Summary</h2><p>{portfolioProfile.summary}</p><div className="intelGrid">{(portfolioProfile.interests || []).map((item) => <span key={item}>{item}</span>)}</div></section>}
-    {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
+    {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong>{modelInfo?.model && <strong>MODEL: {modelInfo.model.displayName}</strong>}<strong>FACT CHECK: 2-PASS</strong></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
   </>;
 }
 

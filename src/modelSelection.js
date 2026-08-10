@@ -54,6 +54,7 @@ export const CHITFORGE_RESPONSE_SCHEMA = {
 };
 
 export const FOLLOW_UP_RESPONSE_SCHEMA = { type: 'object', required: ['expectedEvasion', 'question'], properties: { expectedEvasion: { type: 'string' }, question: { type: 'string' } } };
+export const FACT_CHECK_RESPONSE_SCHEMA = { type: 'object', required: ['overallStatus', 'confidence', 'claims', 'legalAssessment'], properties: { overallStatus: { type: 'string' }, confidence: { type: 'number' }, claims: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, status: { type: 'string' }, reason: { type: 'string' }, sourceRelevant: { type: 'boolean' } } } }, legalAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } } } };
 
 export function modelId(model) { return (model.name || model.id || '').replace(/^models\//, ''); }
 export function displayModelName(model) { return model.displayName || model.display_name || modelId(model).replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
@@ -79,14 +80,18 @@ export function classifyDiscoveredModel(model, verification) {
   const pref = inferPriority(id, model);
   const inputLimit = model.inputTokenLimit || model.input_token_limit || 0;
   const outputLimit = model.outputTokenLimit || model.output_token_limit || 0;
-  const structuredJson = textGeneration ? (verification?.structuredJson === false ? false : true) : false;
-  const status = !textGeneration ? 'INCOMPATIBLE' : structuredJson ? (verification?.verified ? 'STRUCTURED JSON — VERIFIED' : 'STRUCTURED JSON — API VERIFIED') : 'TEXT ONLY';
+  const structuredJson = textGeneration;
+  const status = !textGeneration ? 'INCOMPATIBLE' : 'TEXT GENERATION — JSON RECOVERY ENABLED';
   return { ...model, id, displayName: displayModelName(model), textGeneration, structuredJson, verified: !!verification?.verified, compatibilityStatus: status, priority: pref.priority + (inputLimit >= 100000 ? 4 : 0) + (outputLimit >= 8192 ? 2 : 0), tier: pref.tier, reason: pref.reason, inputTokenLimit: inputLimit, outputTokenLimit: outputLimit };
 }
 
 export function rankModels(models) { return [...models].sort((a, b) => b.priority - a.priority || a.displayName.localeCompare(b.displayName)); }
-export function compatibleModels(models) { return rankModels(models.filter((m) => m.textGeneration && m.structuredJson)); }
+export function compatibleModels(models) { return rankModels(models.filter((m) => m.textGeneration)); }
 export function selectBest(models) { return compatibleModels(models)[0] || null; }
+export function selectFactCheckModel(models, primaryModelId) {
+  return rankModels(models.filter((m) => m.id !== primaryModelId)).sort((a, b) => (a.priority - b.priority) || a.displayName.localeCompare(b.displayName))[0] || rankModels(models)[0] || null;
+}
+
 export function selectSmartRotation(models) {
   const ranked = compatibleModels(models); if (!ranked.length) return null;
   const top = ranked[0].priority; const pool = ranked.filter((m) => top - m.priority <= 20).slice(0, 5);

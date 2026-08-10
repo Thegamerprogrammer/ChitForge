@@ -32,34 +32,6 @@ function parseJson(raw) {
   catch (cause) { throw new Error('Gemini returned an invalid structured response.', { cause }); }
 }
 
-function validateRawMissionShape(parsed, expectedPoiCount) {
-  const problems = [];
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) problems.push('Top-level response must be an object');
-  if (typeof parsed.research_summary !== 'string') problems.push('research_summary must be a string');
-  if (typeof parsed.portfolio_alignment !== 'string') problems.push('portfolio_alignment must be a string');
-  if (!Array.isArray(parsed.targets)) problems.push('targets must be an array');
-  let poiTotal = 0;
-  (parsed.targets || []).forEach((target, targetIndex) => {
-    if (typeof target.country !== 'string') problems.push(`targets[${targetIndex}].country is required`);
-    if (typeof target.reason_for_targeting !== 'string') problems.push(`targets[${targetIndex}].reason_for_targeting is required`);
-    if (!Array.isArray(target.pressure_points)) problems.push(`targets[${targetIndex}].pressure_points must be an array`);
-    (target.pressure_points || []).forEach((point, pointIndex) => {
-      poiTotal += 1;
-      ['poi', 'legal_foundation', 'documented_contradiction', 'tactical_impact', 'classification'].forEach((field) => {
-        if (typeof point[field] !== 'string' || !point[field].trim()) problems.push(`targets[${targetIndex}].pressure_points[${pointIndex}].${field} is required`);
-      });
-      if (!Array.isArray(point.evidence) || !point.evidence.length) problems.push(`targets[${targetIndex}].pressure_points[${pointIndex}].evidence must include at least one source`);
-      (point.evidence || []).forEach((evidence, evidenceIndex) => ['claim', 'source_name', 'source_url'].forEach((field) => {
-        if (typeof evidence[field] !== 'string') problems.push(`evidence[${evidenceIndex}].${field} is required`);
-      }));
-      if (!(point.follow_up === null || typeof point.follow_up === 'string')) problems.push(`targets[${targetIndex}].pressure_points[${pointIndex}].follow_up must be string or null`);
-      if (!(point.expected_evasion === null || typeof point.expected_evasion === 'string')) problems.push(`targets[${targetIndex}].pressure_points[${pointIndex}].expected_evasion must be string or null`);
-    });
-  });
-  if (expectedPoiCount && poiTotal !== expectedPoiCount) problems.push(`Expected ${expectedPoiCount} POIs, received ${poiTotal}`);
-  if (problems.length) throw new Error(`Gemini returned a response that did not match ChitForge's required format: ${problems.slice(0, 4).join('; ')}`);
-}
-
 
 export function normalizeMission(raw, ctx) {
   try {

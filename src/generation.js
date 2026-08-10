@@ -1,5 +1,6 @@
-import { callGemini, GeminiError, CHITFORGE_RESPONSE_SCHEMA, FOLLOW_UP_RESPONSE_SCHEMA } from './gemini.js';
-import { normalizeMission, validateMissionResponse, findDuplicatePoiIndexes } from './validation.js';
+import { callGemini, callFactCheck, repairJsonWithGemini, GeminiError, CHITFORGE_RESPONSE_SCHEMA, FOLLOW_UP_RESPONSE_SCHEMA } from './gemini.js';
+import { validateMissionResponse, findDuplicatePoiIndexes } from './validation.js';
+import { toInternalMission, validateInternalMission, extractJson } from './responseParser.js';
 
 export async function generateMission({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount, onProgress, modelSelection }) {
   onProgress?.({ stage: 'RESEARCHING PORTFOLIO', detail: 'Building Portfolio Intelligence Profile prompt...', done: 0, total: poiCount });
@@ -7,7 +8,7 @@ export async function generateMission({ form, sliders, selectedTargets, targetin
   onProgress?.({ stage: 'ANALYZING TARGETS', detail: 'Researching agenda-relevant targets and pressure points...', done: 0, total: poiCount });
   let response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA, onModelStatus: (status) => onProgress?.({ stage: 'ANALYZING TARGETS', detail: `Using ${status.model.displayName} for ${status.mode}.`, done: 0, total: poiCount }) });
   let text = response.text;
-  let mission = normalizeMission(text, { sliders, includeFollowUp, poiCount });
+  let mission = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount, targetingMode }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const problems = validateMissionResponse(mission, { selectedTargets, targetingMode, includeFollowUp, sliders, poiCount });
     if (!problems.length) break;
@@ -16,7 +17,7 @@ export async function generateMission({ form, sliders, selectedTargets, targetin
     if (malformedRequest) break;
     response = await callGemini(form.apiKey, buildRevisionPrompt({ form, sliders, includeFollowUp, previous: mission, problems, poiCount }), { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
     text = response.text;
-    mission = normalizeMission(text, { sliders, includeFollowUp, poiCount });
+    mission = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount, targetingMode }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   }
   const duplicates = findDuplicatePoiIndexes(mission.chits);
   if (duplicates.length) {
@@ -29,7 +30,8 @@ export async function generateMission({ form, sliders, selectedTargets, targetin
     mission = await generateMissingPois({ form, sliders, selectedTargets, targetingMode, includeFollowUp, mission, missing, poiCount, modelSelection });
   }
   onProgress?.({ stage: 'FINALIZING TACTICAL BRIEF', detail: `${mission.chits.length}/${poiCount} POIs generated. Calculating local metrics...`, done: mission.chits.length, total: poiCount });
-  return { ...mission, modelInfo: { model: response.model, mode: response.mode, fallbackLog: response.fallbackLog } };
+  mission = await runFactChecks({ mission, form, apiKey: form.apiKey, primaryModel: response.model, modelSelection, onProgress });
+  return { ...mission, modelInfo: { model: response.model, factCheckModel: mission.metadata.factCheckModel, mode: response.mode, fallbackLog: response.fallbackLog } };
 }
 
 export async function regenerateChit({ form, sliders, chit, existingChits, apiKey, includeFollowUp, onProgress, modelSelection }) {
@@ -37,7 +39,7 @@ export async function regenerateChit({ form, sliders, chit, existingChits, apiKe
   const prompt = `Return STRICT JSON only, no markdown fences. Regenerate exactly 1 distinct ChitForge POI to replace the weak POI below. Use the same agenda, portfolio, target, slider profile, evidence standards, simple English, no ceremonial opening, and Markdown bold emphasis. Do not duplicate these existing POIs: ${JSON.stringify(existingChits.map((item) => item.poi))}.\nAGENDA: ${form.agenda}\nPORTFOLIO: ${form.portfolio}\nTARGET: ${chit.target}\nSLIDERS: ${JSON.stringify(sliders)}\nFOLLOW-UP: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}\nOLD CHIT: ${JSON.stringify(chit)}\nReturn schema {"research_summary":"...","portfolio_alignment":"...","targets":[{"country":"${chit.target}","pressure_points":[{"poi":"...","legal_foundation":"...","evidence":[{"claim":"...","source_name":"...","source_url":"..."}],"documented_contradiction":"...","tactical_impact":"...","classification":"...","follow_up":${includeFollowUp ? '"..."' : 'null'}}]}]}`;
   const response = await callGemini(apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
   const text = response.text;
-  const mission = normalizeMission(text, { sliders, includeFollowUp, poiCount: 1 });
+  const mission = await recoverMission({ apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: 1, targetingMode: 'regenerate' }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   return mission.chits[0] || chit;
 }
 
@@ -47,11 +49,77 @@ export async function generateFollowUp({ form, sliders, chit, apiKey, onProgress
   const response = await callGemini(apiKey, prompt, { ...modelSelection, schema: FOLLOW_UP_RESPONSE_SCHEMA });
   const text = response.text;
   try {
-    const parsed = JSON.parse(text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, ''));
+    const parsed = extractJson(text);
     return { ...chit, followUp: { expectedEvasion: parsed.expectedEvasion || 'VERIFICATION REQUIRED', question: parsed.question || 'What evidence addresses the original contradiction directly?' } };
   } catch (cause) {
     throw new GeminiError('Invalid JSON returned by Gemini while generating the follow-up. Try again.', { category: 'invalid-json', cause });
   }
+}
+
+
+async function recoverMission({ apiKey, text, ctx, modelSelection, modelInfo }) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const mission = toInternalMission(text, ctx, modelInfo);
+      const problems = validateInternalMission(mission, { poiCount: ctx.poiCount, includeFollowUp: ctx.includeFollowUp });
+      if (!problems.length) return mission;
+      if (attempt === 2) throw new GeminiError(`Response could not be normalized into ChitForge's required structure: ${problems.slice(0, 3).join('; ')}`, { category: 'schema-failure', rawText: text });
+      const repair = await repairJsonWithGemini(apiKey, text, { modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
+      text = repair.text;
+    } catch (err) {
+      if (attempt === 2) {
+        if (err instanceof GeminiError) throw err;
+        throw new GeminiError('Gemini returned usable content requiring normalization, but ChitForge could not safely recover it.', { category: 'format-recovery-failed', cause: err, rawText: text });
+      }
+      const repair = await repairJsonWithGemini(apiKey, text, { modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
+      text = repair.text;
+    }
+  }
+  throw new GeminiError("Gemini returned a response that did not match ChitForge's required format.", { category: 'schema-failure' });
+}
+
+function buildFactCheckPrompt({ form, poi, pass }) {
+  const instruction = pass === 1 ? `You are ChitForge's factual verification engine. Independently verify every factual claim. Do not rewrite the POI. Classify each claim as verified, partially_verified, disputed, unverified, or false. Check dates, statistics, policies, resolutions, treaties, legal claims, institutional actions, financial claims and source relevance. Do not assume that a source proves a claim merely because it is listed.` : `Independently verify the factual and legal claims. Do not rely on another model's conclusion. Identify unsupported, exaggerated, misleading or incorrectly classified claims. Pay particular attention to legal terminology. Do not classify something as a legal violation unless the evidence actually supports that conclusion.`;
+  return `${instruction}
+Return ONLY valid JSON with overallStatus (verified|review|rejected), confidence 0-100, claims[], and legalAssessment.
+AGENDA: ${form.agenda}
+PORTFOLIO: ${form.portfolio}
+TARGET: ${poi.target}
+POI: ${poi.poi}
+LEGAL FOUNDATION: ${poi.legalFoundation}
+EVIDENCE: ${JSON.stringify(poi.evidence)}
+DOCUMENTED ISSUE: ${poi.documentedIssue}`;
+}
+
+function normalizeFactCheck(parsed) {
+  const status = ['verified', 'review', 'rejected'].includes(parsed.overallStatus) ? parsed.overallStatus : 'review';
+  return { overallStatus: status, confidence: Number(parsed.confidence || 0), claims: Array.isArray(parsed.claims) ? parsed.claims : [], legalAssessment: parsed.legalAssessment || { status: 'uncertain', reason: 'No legal assessment returned.' } };
+}
+
+function combineFactChecks(first, second) {
+  if (first.overallStatus === 'rejected' && second.overallStatus === 'rejected') return { status: 'rejected', confidence: Math.round((first.confidence + second.confidence) / 2), claims: [...first.claims, ...second.claims], legalAssessment: first.legalAssessment };
+  if (first.overallStatus === second.overallStatus && first.overallStatus === 'verified') return { status: 'verified', confidence: Math.round((first.confidence + second.confidence) / 2), claims: [...first.claims, ...second.claims], legalAssessment: first.legalAssessment };
+  return { status: 'review', confidence: Math.round((first.confidence + second.confidence) / 2), claims: [...first.claims, ...second.claims], legalAssessment: first.legalAssessment };
+}
+
+async function runFactChecks({ mission, form, apiKey, primaryModel, modelSelection, onProgress }) {
+  const updated = []; let factCheckModel = '';
+  for (let i = 0; i < mission.chits.length; i += 1) {
+    const poi = mission.chits[i];
+    onProgress?.({ stage: 'VALIDATING EVIDENCE', detail: `Fact-checking POI ${i + 1}/${mission.chits.length} with two independent passes...`, done: i, total: mission.chits.length });
+    try {
+      const first = await callFactCheck(apiKey, buildFactCheckPrompt({ form, poi, pass: 1 }), { primaryModelId: primaryModel.id, modelSelection });
+      const second = await callFactCheck(apiKey, buildFactCheckPrompt({ form, poi, pass: 2 }), { primaryModelId: primaryModel.id, modelSelection });
+      factCheckModel = second.model.displayName;
+      updated.push({ ...poi, factCheck: combineFactChecks(normalizeFactCheck(extractJson(first.text)), normalizeFactCheck(extractJson(second.text))) });
+    } catch {
+      updated.push({ ...poi, factCheck: { status: 'review', confidence: 0, claims: [], legalAssessment: { status: 'uncertain', reason: 'Fact-check unavailable; verify evidence manually.' } } });
+    }
+  }
+  mission.chits = updated;
+  mission.targets = mission.targets.map((target) => ({ ...target, pois: updated.filter((poi) => poi.target === target.country) }));
+  mission.metadata.factCheckModel = factCheckModel || 'Unavailable';
+  return mission;
 }
 
 function band(value, bands) { return bands.find(([max]) => value <= max)?.[1] || bands.at(-1)[1]; }
@@ -62,7 +130,7 @@ function diplomacyInstruction(value) { return band(value, [[10, 'Use blunt, dire
 function styleProfile(sliders) { return [`AGGRESSION: ${sliders.aggression}/100 — ${aggressionInstruction(sliders.aggression)}`, `CONTROVERSY: ${sliders.controversy}/100 — ${controversyInstruction(sliders.controversy)}`, `DIPLOMACY: ${sliders.diplomacy}/100 — ${diplomacyInstruction(sliders.diplomacy)}`, `LENGTH: ${sliders.length}/100 — generate each spoken POI in the target range ${lengthRange(sliders.length)}. Do not pad the question.`].join('\n'); }
 
 export function buildMissionPrompt({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount }) {
-  const manualTargets = selectedTargets.map((c) => `${c.name} (${c.iso})`).join(', ') || 'NONE — zero selected targets is valid; use auto-discovery for Automatic/Hybrid.';
+  const manualTargets = selectedTargets.map((c) => `${c.name} (${c.iso})`).join(', ') || 'NONE — zero selected targets is valid in Selected + Global Research; research globally.';
   return `You are ChitForge's MUN tactical POI generation engine. Every POI must be accurate, evidence-based, agenda-relevant, portfolio-aligned, easy to speak aloud, simple in English, concise, hard-hitting, and strategically useful. Do not write generic AI questions. Do not add ceremonial filler. The POI must begin directly with the substantive issue.
 
 COMMITTEE: ${form.committee || 'Unspecified'}
@@ -84,7 +152,7 @@ ${styleProfile(sliders)}
 
 PIPELINE: USER INPUT → BUILD FULL GEMINI PROMPT → PORTFOLIO → FOREIGN POLICY + COMMITTEE INTERESTS → AGENDA RELEVANCE → IDENTIFY PRESSURE POINTS → OPTIONAL TARGET SELECTION → RESEARCH TARGET → GENERATE POI → APPLY SLIDER STYLE → VERIFY EVIDENCE → RETURN STRUCTURED JSON.
 
-TARGETING RULES: Required inputs are agenda and portfolio only. Targets are optional. Manual means use selected targets only; if none, return no POIs and explain manual selection is needed. Automatic means research portfolio and agenda, then choose agenda-relevant countries based on foreign-policy conflict, economic relevance, committee relevance, policy contradictions, international commitments, and documented pressure points; do not choose merely famous or powerful states. Hybrid means recommend targets and use selected targets too. Never target the portfolio country against itself.
+TARGETING RULES: Required inputs are agenda and portfolio only. Targets are optional. Selected Targets Only means use selected targets only; if none, return no POIs and explain target selection is needed. Selected + Global Research means selected countries are primary targets, while the model may add secondary agenda-relevant countries based on foreign-policy conflict, economic relevance, committee relevance, policy contradictions, international commitments, documented controversies, and pressure points; do not choose merely famous or powerful states. Never target the portfolio country against itself.
 
 PORTFOLIO INTELLIGENCE: Before writing POIs, analyze foreign policy, official positions, committee interests, agenda priorities, economic interests, regional interests, alliances, treaty commitments, UN positions/voting where relevant, official statements, proposals, frameworks, and documented priorities. Determine what the portfolio actually wants, who supports/obstructs it, and what documented pressure points advance the portfolio's legitimate interests.
 
@@ -112,7 +180,7 @@ async function generateMissingPois({ form, sliders, selectedTargets, targetingMo
   const prompt = buildMissionPrompt({ form, sliders, selectedTargets, targetingMode, includeFollowUp, poiCount: missing }) + `\n\nAlready generated POIs to avoid duplicating: ${JSON.stringify(mission.chits.map((chit) => chit.poi))}. Generate exactly ${missing} additional distinct replacement POI chits only.`;
   const response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
   const text = response.text;
-  const extra = normalizeMission(text, { sliders, includeFollowUp, poiCount: missing });
+  const extra = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: missing, targetingMode }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   return { ...mission, chits: [...mission.chits, ...extra.chits].slice(0, poiCount), recommendedTargets: [...(mission.recommendedTargets || []), ...(extra.recommendedTargets || [])] };
 }
 
@@ -121,6 +189,6 @@ async function replaceDuplicatePois({ form, sliders, includeFollowUp, mission, d
   const prompt = `Return STRICT JSON only, no markdown fences. Generate exactly ${duplicates.length} distinct replacement POI chits. Do not duplicate these POIs: ${JSON.stringify(keep.map((chit) => chit.poi))}. Agenda: ${form.agenda}. Portfolio: ${form.portfolio}. Sliders: ${JSON.stringify(sliders)}. Follow-up: ${includeFollowUp ? 'GENERATE' : 'DO NOT GENERATE'}. Use the same ChitForge schema with targets[].pressure_points[].`;
   const response = await callGemini(form.apiKey, prompt, { ...modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
   const text = response.text;
-  const replacement = normalizeMission(text, { sliders, includeFollowUp, poiCount: duplicates.length });
+  const replacement = await recoverMission({ apiKey: form.apiKey, text, ctx: { form, sliders, includeFollowUp, poiCount: duplicates.length, targetingMode: 'replacement' }, modelSelection, modelInfo: { primaryModel: response.model.displayName } });
   return { ...mission, chits: [...keep, ...replacement.chits].slice(0, poiCount) };
 }
