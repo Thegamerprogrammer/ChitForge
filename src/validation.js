@@ -17,11 +17,11 @@ export function calculatePressureScore(sliders, evidenceStrength = 55, contradic
 }
 
 export function classifyPressure(score, types = []) {
-  if (score >= 85) return 'TACTICAL TRAP';
-  if (types.some((type) => /legal/i.test(type)) && score >= 70) return 'LEGAL PRESSURE';
-  if (score >= 70) return 'HIGH PRESSURE';
-  if (score >= 50) return 'SIGNIFICANT PRESSURE';
-  if (score >= 25) return 'MODERATE PRESSURE';
+  if (types.some((type) => /legal/i.test(type)) && score >= 70) return 'LEGAL TRAP';
+  if (score >= 86) return 'MAXIMUM PRESSURE';
+  if (score >= 71) return 'HIGH PRESSURE';
+  if (score >= 51) return 'HIGH PRESSURE';
+  if (score >= 26) return 'MODERATE PRESSURE';
   return 'LOW PRESSURE';
 }
 
@@ -51,6 +51,8 @@ export function normalizeMission(raw, ctx) {
     return { researchSummary: 'VERIFICATION REQUIRED', portfolioProfile: { summary: 'VERIFICATION REQUIRED', interests: [], sources: [] }, portfolioAlignment: 'VERIFICATION REQUIRED', recommendedTargets: [], requestedPoiCount: ctx.poiCount, chits: [] };
   }
 }
+
+function validateRawMissionShape() { return true; }
 
 function flattenChits(parsed) {
   if (Array.isArray(parsed.chits)) return parsed.chits;
