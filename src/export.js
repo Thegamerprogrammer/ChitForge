@@ -1,26 +1,37 @@
-const esc = (value) => String(value ?? '').replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[char]);
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, ExternalHyperlink } from 'docx';
+import { stripMarkdown } from './format.js';
 
-export function downloadBrief({ form, sliders, portfolioProfile, researchContext, chits }) {
-  const sections = chits.map((chit, index) => `<section class="target">
-    <h2>CHIT #${String(index + 1).padStart(2, '0')} — ${esc(chit.target)}</h2>
-    <h3>PRESSURE PROFILE</h3>
-    <table><tr><td>Aggression</td><td>${chit.pressureProfile?.aggression ?? sliders.aggression}%</td></tr><tr><td>Controversy</td><td>${chit.pressureProfile?.controversy ?? sliders.controversy}%</td></tr><tr><td>Diplomacy</td><td>${chit.pressureProfile?.diplomacy ?? sliders.diplomacy}%</td></tr><tr><td>Length</td><td>${chit.pressureProfile?.length ?? sliders.length}%</td></tr><tr><td>Pressure Score</td><td>${chit.pressureProfile?.score}/100</td></tr><tr><td>Classification</td><td>${esc(chit.pressureProfile?.classification)}</td></tr></table>
-    <h3>POI</h3><blockquote>${esc(chit.poi)}</blockquote>
-    <h3>LEGAL / POLICY FOUNDATION</h3><p>${esc(chit.legalPolicyFoundation)}</p>
-    <h3>EVIDENCE & SOURCES</h3>${(chit.evidence || []).map((e) => `<p><b>${esc(e.title || e.source)}</b><br>${esc(e.organization || e.publication || 'VERIFICATION REQUIRED')} · ${esc(e.date || 'VERIFICATION REQUIRED')} · ${esc(e.sourceClassification || 'VERIFICATION REQUIRED')}<br>${e.url ? esc(e.url) : 'VERIFICATION REQUIRED'}<br><b>Published:</b> ${esc(e.publishedAt || e.date || 'VERIFICATION REQUIRED')}<br><b>Event date:</b> ${esc(e.eventDate || 'VERIFICATION REQUIRED')}<br><b>Freeze status:</b> ${esc(e.freezeStatus || 'VERIFICATION REQUIRED')}<br><b>Claim:</b> ${esc(e.claim)}</p>`).join('')}
-    <h3>DOCUMENTED PRESSURE POINT</h3><p><b>Portfolio position:</b> ${esc(chit.pressurePoint?.portfolioPosition)}</p><p><b>Target position/action:</b> ${esc(chit.pressurePoint?.targetPositionAction)}</p><p><b>Conflict/contradiction:</b> ${esc(chit.pressurePoint?.conflict)}</p><p><b>Agenda relevance:</b> ${esc(chit.pressurePoint?.agendaRelevance)}</p>
-    <h3>LEGAL / TACTICAL CLASSIFICATION</h3><p>${esc((chit.legalTacticalTypes || []).join(', '))}</p>
-    <h3>TACTICAL IMPACT</h3><p>${esc(chit.tacticalImpact)}</p>
-    ${chit.followUp ? `<h3>OPTIONAL FOLLOW-UP</h3><p><b>Expected evasion:</b> ${esc(chit.followUp.expectedEvasion)}</p><p><b>Follow-up:</b> ${esc(chit.followUp.question)}</p>` : ''}
-    <h3>VALIDATION</h3>${(chit.validation || []).map((v) => `<p>${v.pass ? '✓' : 'VERIFICATION REQUIRED'} ${esc(v.test)} — ${esc(v.notes)}</p>`).join('')}
-  </section>`).join('<br style="page-break-after:always">');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-    body{font-family:Aptos,Arial,sans-serif;color:#111;line-height:1.45} h1{color:#8a6813;border-bottom:5px solid #D4AF37;padding-bottom:12px} h2{color:#6e5412;border-top:2px solid #D4AF37;padding-top:16px} h3{color:#8a6813;text-transform:uppercase;font-size:11pt;letter-spacing:.08em} blockquote{border-left:8px solid #D4AF37;background:#fff8df;padding:14px 18px;font-size:16pt} table{border-collapse:collapse;width:100%;margin:10px 0} td{border:1px solid #d7c57d;padding:8px} .target{page-break-after:always} footer{mso-element:footer;color:#777;font-size:9pt}
-  </style></head><body><h1>CHITFORGE<br>TACTICAL POI BRIEF</h1><p><b>COMMITTEE:</b> ${esc(form.committee || 'Unspecified')}<br><b>AGENDA:</b> ${esc(form.agenda)}<br><b>PORTFOLIO:</b> ${esc(form.portfolio)}<br><b>DATE:</b> ${new Date().toLocaleString()}<br><b>MUN FREEZE DATE:</b> ${esc(researchContext?.freezeDate || 'Not enforced')}<br><b>FREEZE POLICY:</b> ${researchContext?.enforceFreezeDate ? 'Research was filtered according to the configured freeze-date policy.' : 'Freeze-date enforcement disabled.'}</p><h2>RESEARCH CONTEXT METHODOLOGY</h2><p>Background guides and user notes were treated as context and instructions, not automatically authoritative evidence. External factual claims require source validation.</p><h2>PORTFOLIO INTELLIGENCE SUMMARY</h2><p>${esc(portfolioProfile?.summary || 'VERIFICATION REQUIRED')}</p><p><b>Interests:</b> ${esc((portfolioProfile?.interests || []).join('; '))}</p>${sections}<footer>ChitForge tactical brief · generated locally in browser</footer></body></html>`;
-  const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = 'ChitForge-Tactical-POI-Brief.docx';
-  link.click();
-  URL.revokeObjectURL(link.href);
+function safe(value, fallback = 'MANUAL VERIFICATION') { return String(value ?? '').trim() || fallback; }
+function boldRuns(text) {
+  const runs = [];
+  String(text || '').split(/(\*\*.*?\*\*)/g).filter(Boolean).forEach((part) => {
+    const bold = part.startsWith('**') && part.endsWith('**');
+    runs.push(new TextRun({ text: bold ? part.slice(2, -2) : part, bold }));
+  });
+  return runs.length ? runs : [new TextRun('MANUAL VERIFICATION')];
+}
+const line = (label, value) => new Paragraph({ children: [new TextRun({ text: `${label}: `, bold: true, color: 'D4AF37' }), new TextRun(safe(value))], spacing: { after: 100 } });
+const heading = (text) => new Paragraph({ text, heading: HeadingLevel.HEADING_2, spacing: { before: 280, after: 120 }, border: { top: { style: BorderStyle.SINGLE, size: 8, color: 'D4AF37' } } });
+const link = (text, url) => url ? new ExternalHyperlink({ link: url, children: [new TextRun({ text, style: 'Hyperlink' })] }) : new TextRun('MANUAL VERIFICATION');
+
+export async function downloadBrief({ form, sliders, portfolioProfile, chits, poiCount, selectedTargets = [], modelInfo, targetMode }) {
+  const children = [
+    new Paragraph({ text: 'CHITFORGE', heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }),
+    new Paragraph({ text: 'TACTICAL POI BRIEF', heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, border: { bottom: { style: BorderStyle.SINGLE, size: 16, color: 'D4AF37' } } }),
+    line('Committee', form.committee || 'Unspecified'), line('Agenda', form.agenda), line('Portfolio', form.portfolio), line('Target Mode', targetMode || 'Selected + Global Research'), line('POI Count', `${chits.length}${poiCount ? ` / ${poiCount} requested` : ''}`), line('Primary Model', modelInfo?.model?.displayName || 'Not recorded'), line('Fact Check Model', modelInfo?.factCheckModel || '2-pass verification'), line('Targets', selectedTargets.length ? selectedTargets.map((t) => `${t.name} (${t.iso})`).join(', ') : 'Auto-discovery / Gemini-selected targets'),
+    heading('PORTFOLIO INTELLIGENCE SUMMARY'), new Paragraph(stripMarkdown(portfolioProfile?.summary || 'Portfolio intelligence pending sourced verification.')),
+  ];
+  chits.forEach((chit, index) => {
+    children.push(heading(`POI NUMBER ${index + 1}`), line('Target', chit.target), line('POI Type', chit.classification || chit.pressureProfile?.classification), new Paragraph({ children: [new TextRun({ text: 'QUESTION', bold: true, color: 'D4AF37' })], spacing: { before: 120, after: 80 } }), new Paragraph({ children: boldRuns(chit.poi), border: { left: { style: BorderStyle.SINGLE, size: 16, color: 'D4AF37' } }, spacing: { after: 160 } }), line('Pressure Score', `${chit.pressureScore ?? chit.pressureProfile?.score}/100`), line('Verification Status', chit.factCheck?.status || 'MANUAL VERIFICATION'), line('Aggression', chit.aggression ?? sliders.aggression), line('Controversy', chit.controversy ?? sliders.controversy), line('Diplomacy', chit.diplomacy ?? sliders.diplomacy), line('Length', chit.length ?? sliders.length), line('Word Count', `${chit.wordCount} words`), line('Estimated Speaking Time', `${chit.estimatedSeconds} seconds`), line('Legal Foundation', chit.legalFoundation || chit.legalPolicyFoundation), heading('SOURCE DETAILS'));
+    (chit.evidence || []).forEach((e) => children.push(line('Source', `${safe(e.sourceName)} — ${safe(e.organization)} — ${safe(e.publicationDate)}`), line('Source Quality', e.quality || 'LIMITED'), line('Source Status', e.status || 'MANUAL VERIFICATION'), new Paragraph({ children: [new TextRun({ text: 'Source URL: ', bold: true, color: 'D4AF37' }), link('Open Source', e.url)] }), line('Claim Supported', e.claimSupported || e.claim)));
+    children.push(line('Documented Issue', chit.documentedIssue || chit.pressurePoint?.conflict), line('Tactical Impact', chit.tacticalImpact), line('Legal Assessment', `${chit.factCheck?.legalAssessment?.status || 'UNCERTAIN'} — ${chit.factCheck?.legalAssessment?.reason || ''}`), line('Classification Assessment', `${chit.factCheck?.classificationAssessment?.status || 'UNCERTAIN'} — ${chit.factCheck?.classificationAssessment?.reason || ''}`));
+    if (chit.followUp) children.push(line('Follow-up', chit.followUp.question || chit.followUp));
+  });
+  const doc = new Document({ sections: [{ properties: {}, children }] });
+  const blob = await Packer.toBlob(doc);
+  const anchor = document.createElement('a');
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = 'ChitForge-Tactical-POI-Brief.docx';
+  anchor.click();
+  URL.revokeObjectURL(anchor.href);
 }

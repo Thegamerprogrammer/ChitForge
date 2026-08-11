@@ -44,11 +44,67 @@ export function validateSourceUrl(url) {
 export function normalizeEvidenceSource(raw = {}) {
   const sourceName = raw.sourceName || raw.source_name || raw.title || raw.source || raw.name || 'Manual verification source';
   const organization = raw.organization || raw.publisher || raw.publication || raw.sourceName || raw.source_name || sourceName;
-  const publicationDate = raw.publicationDate || raw.publication_date || raw.date || 'MANUAL VERIFICATION';
+  const publicationDate = raw.publicationDate || raw.publication_date || raw.date || '';
   const url = raw.url || raw.sourceUrl || raw.source_url || raw.link || '';
   const structural = validateSourceUrl(url);
   const sourceType = normalizeSourceType(raw.sourceType || raw.source_type || raw.sourceClassification || raw.type || organization);
-  return { sourceName, organization, publicationDate, url, claimSupported: raw.claimSupported || raw.claim || raw.text || 'MANUAL VERIFICATION: claim support must be checked.', sourceType, confidence: Number(raw.confidence || 0), quality: sourceQuality(sourceType), status: structural.status, verificationReason: structural.reason, domain: structural.domain || domainFromUrl(url) };
+  return { sourceName, organization, publicationDate, url, claimSupported: raw.claimSupported || raw.claim || raw.text || 'Claim requires manual source review.', sourceType, confidence: Number(raw.confidence || 0), quality: sourceQuality(sourceType), status: structural.status, verificationReason: structural.reason, domain: structural.domain || domainFromUrl(url) };
+}
+
+
+export function trustedSourceMap(sources = []) {
+  return new Map(sources.filter((s) => s?.url).map((s) => [s.url, s]));
+}
+
+export function sourceFromGrounding(source = {}) {
+  const structural = validateSourceUrl(source.url);
+  const sourceType = normalizeSourceType(source.sourceType || source.type || source.organization || source.domain);
+  return {
+    id: source.id,
+    url: source.url,
+    sourceName: source.sourceName || source.title || source.domain || 'Retrieved source',
+    organization: source.organization || source.domain || source.sourceName || 'Retrieved source',
+    publicationDate: source.publicationDate || source.publishedAt || '',
+    claimSupported: source.claimSupported || source.verbatimEvidence || source.snippet || 'Grounded citation returned by Gemini Google Search.',
+    sourceType,
+    quality: sourceQuality(sourceType),
+    confidence: Number(source.confidence || 60),
+    status: structural.status === SOURCE_STATUSES.FAILED ? SOURCE_STATUSES.FAILED : SOURCE_STATUSES.MANUAL,
+    verificationReason: structural.status === SOURCE_STATUSES.FAILED ? structural.reason : 'Exact URL came from Google Search grounding metadata; claim support awaits reviewer/fact check.',
+    domain: source.domain || structural.domain || domainFromUrl(source.url),
+    citationSource: source.citationSource || 'google_search',
+    retrievalStatus: source.retrievalStatus || 'retrieved',
+    reviewStatus: source.reviewStatus || 'pending',
+    verbatimEvidence: source.verbatimEvidence || null,
+    claimsSupported: source.claimsSupported || [],
+    claimsContradicted: source.claimsContradicted || [],
+  };
+}
+
+export function enforceTrustedEvidence(evidence = [], groundedSources = []) {
+  const trusted = trustedSourceMap(groundedSources);
+  return evidence.map((source) => {
+    const normalized = normalizeEvidenceSource(source);
+    const grounded = trusted.get(normalized.url);
+    if (!grounded) {
+      return {
+        ...normalized,
+        status: SOURCE_STATUSES.FAILED,
+        verificationReason: normalized.url
+          ? 'URL was not returned by Gemini Google Search grounding metadata; model-generated URLs are not trusted.'
+          : 'No trusted retrieved source URL was attached to this claim.',
+        citationSource: 'model_generated_untrusted',
+      };
+    }
+    const exact = sourceFromGrounding(grounded);
+    return {
+      ...normalized,
+      ...exact,
+      claimSupported: normalized.claimSupported || exact.claimSupported,
+      status: SOURCE_STATUSES.MANUAL,
+      verificationReason: 'Trusted retrieved URL matched Google Search grounding metadata; claim support awaits two-pass review.',
+    };
+  });
 }
 
 export function applyFactCheckToSources(evidence = [], factCheck) {

@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { WorldMap } from './map.jsx';
 import { loadStoredKey, saveApiKey, clearStoredKey } from './state.js';
-import { generateFollowUp, generateMission } from './generation.js';
+import { generateFollowUp, generateMission, regenerateChit, lengthInfo } from './generation.js';
+import { discoverGeminiModels, refreshModelCapabilities, MODEL_SELECTION_MODES } from './gemini.js';
 import { validateMissionInputs } from './validation.js';
 import { downloadBrief } from './export.js';
-import { buildMUNResearchContext, defaultResearchContext, loadResearchSession, processBackgroundGuide, saveResearchSession } from './context.js';
+import { renderMarkdownBold } from './format.js';
+import { POI_TYPES } from './validation.js';
+import { domainFromUrl } from './sourceValidation.js';
 
 const defaultSliders = { aggression: 0, controversy: 0, diplomacy: 0, length: 0 };
 const modes = [
@@ -14,6 +17,7 @@ const modes = [
   ['automatic', 'Automatic', 'AI chooses agenda-relevant targets when none are selected.'],
   ['manual', 'Manual', 'Use only countries selected on the real world map.'],
 ];
+const progressStages = ['INITIALIZING', 'READING AGENDA', 'ANALYZING PORTFOLIO', 'ANALYZING FOREIGN POLICY', 'MAPPING TARGETS', 'RESEARCHING EVIDENCE', 'ANALYZING LEGAL FRAMEWORKS', 'GENERATING POIs', 'VALIDATING STRUCTURE', 'FACT CHECK PASS 1', 'FACT CHECK PASS 2', 'CALCULATING PRESSURE', 'FINALIZING CHITS', 'PREPARING DOCX'];
 
 function App() {
   const stored = useMemo(() => loadStoredKey(), []);
@@ -23,16 +27,27 @@ function App() {
   const [selected, setSelected] = useState([]);
   const [mode, setMode] = useState('hybrid');
   const [includeFollowUp, setIncludeFollowUp] = useState(false);
-  const [researchContext, setResearchContext] = useState(savedContext || defaultResearchContext);
-  const [researchNoteDraft, setResearchNoteDraft] = useState('');
+  const [poiTypes, setPoiTypes] = useState(['AUTO']);
+  const [activity, setActivity] = useState([]);
   const [portfolioProfile, setPortfolioProfile] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [chits, setChits] = useState([]);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  const munContext = useMemo(() => buildMUNResearchContext({ form, context: researchContext, selectedTargets: selected }), [form, researchContext, selected]);
+  const [modelMode, setModelMode] = useState(MODEL_SELECTION_MODES.BEST);
+  const [manualModelId, setManualModelId] = useState('');
+  const [modelCatalog, setModelCatalog] = useState(null);
+  const [modelInfo, setModelInfo] = useState(null);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [reviewModelId, setReviewModelId] = useState('');
+  const [researchDepth, setResearchDepth] = useState('Standard');
+  const [extensiveLegalities, setExtensiveLegalities] = useState(false);
+  const [poisPerCountry, setPoisPerCountry] = useState(10);
+  const [opposition, setOpposition] = useState([]);
+  const [poiSearch, setPoiSearch] = useState('');
+  const [tierFilter, setTierFilter] = useState('ALL');
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
 
   const updateForm = (key, value) => {
     const next = { ...form, [key]: value };
@@ -40,26 +55,20 @@ function App() {
     if (key === 'apiKey' || key === 'rememberKey') saveApiKey(next.apiKey, next.rememberKey);
   };
 
+  const showError = (err) => setError({ message: err.message || 'Generation failed. Please try again.', diagnostic: err.diagnostic, status: err.status, category: err.category });
+  const pushProgress = (next) => { setStatus(next); setActivity((items) => [{ time: new Date().toLocaleTimeString(), stage: next.stage, detail: next.detail, done: next.done, total: next.total }, ...items].slice(0, 14)); };
 
-  const updateContext = (patch) => setResearchContext((ctx) => ({ ...ctx, ...patch }));
-  const updateNoteUsage = (key, value) => setResearchContext((ctx) => ({ ...ctx, noteUsage: { ...ctx.noteUsage, [key]: value } }));
-  const addResearchNote = () => {
-    if (!researchNoteDraft.trim()) return;
-    setResearchContext((ctx) => ({ ...ctx, researchNotes: [...ctx.researchNotes, researchNoteDraft.trim()] }));
-    setResearchNoteDraft('');
-  };
-  const removeResearchNote = (index) => setResearchContext((ctx) => ({ ...ctx, researchNotes: ctx.researchNotes.filter((_, i) => i !== index) }));
-  const handleGuide = async (file) => {
-    if (!file) return;
-    setStatus(`Extracting context from ${file.name}...`);
+  const modelSelection = { modelMode, manualModelId, reviewModelId, researchDepth, extensiveLegalities, oppositionTargets: opposition };
+  const refreshModels = async (verify = false) => {
+    if (!form.apiKey.trim()) { setError({ message: 'Missing Gemini API key. Enter your key and try again.' }); return; }
+    setModelLoading(true); setError(null);
     try {
-      const backgroundGuide = await processBackgroundGuide(file, form.agenda, researchContext.researchNotes);
-      updateContext({ backgroundGuide });
-    } catch {
-      setError('Background guide extraction failed. Try TXT, MD, or DOCX, or paste excerpts into notes.');
-    } finally {
-      setStatus('');
-    }
+      const catalog = verify ? await refreshModelCapabilities(form.apiKey, { force: true }) : await discoverGeminiModels(form.apiKey, { force: true });
+      setModelCatalog(catalog);
+      if (!manualModelId && catalog.compatible[0]) setManualModelId(catalog.compatible[0].id);
+      if (!reviewModelId && catalog.compatible.at(-1)) setReviewModelId(catalog.compatible.at(-1).id);
+    } catch (err) { showError(err); }
+    finally { setModelLoading(false); }
   };
   const savePoiNote = (target, note) => setResearchContext((ctx) => ({ ...ctx, poiNotes: { ...ctx.poiNotes, [target]: note ? [note] : [] } }));
 
@@ -71,8 +80,8 @@ function App() {
     setChits([]);
     setRecommendations([]);
     try {
-      saveResearchSession({ context: researchContext, targets: selected, targetingMode: mode, sliders });
-      const result = await generateMission({ form, sliders, selectedTargets: selected, targetingMode: mode, includeFollowUp, researchContext: munContext, onProgress: setStatus });
+      setActivity([]);
+      const result = await generateMission({ form, sliders, selectedTargets: selected, targetingMode: mode, includeFollowUp, poiCount, poiTypes, onProgress: pushProgress, modelSelection });
       setPortfolioProfile(result.portfolioProfile);
       setRecommendations(result.recommendedTargets || []);
       setChits(result.chits);
@@ -88,7 +97,16 @@ function App() {
   const addFollowUp = async (index) => {
     setBusy(true);
     try {
-      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: setStatus });
+      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: pushProgress, modelSelection });
+      setChits((items) => items.map((item, i) => (i === index ? updated : item)));
+    } catch (err) { showError(err); }
+    finally { setBusy(false); setStatus(null); }
+  };
+
+  const regenerateOne = async (index) => {
+    setBusy(true);
+    try {
+      const updated = await regenerateChit({ form, sliders, chit: chits[index], existingChits: chits.filter((_, i) => i !== index), apiKey: form.apiKey, includeFollowUp, onProgress: pushProgress, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
     } catch (err) {
       setError(err.message || 'Could not generate follow-up.');
@@ -100,9 +118,17 @@ function App() {
 
   const copyText = (text) => navigator.clipboard?.writeText(text).catch(() => setError('Clipboard access was blocked by the browser.'));
   const exportBrief = (items = chits) => {
-    try { downloadBrief({ form, sliders, portfolioProfile, researchContext: munContext, chits: items }); }
-    catch { setError('DOCX export failed. Please try again in a modern browser.'); }
+    try { pushProgress({ stage: 'PREPARING DOCX', detail: 'Preparing professional DOCX tactical brief.', done: items.length, total: items.length || 1 }); downloadBrief({ form, sliders, portfolioProfile, chits: items, poiCount, selectedTargets: selected, modelInfo, targetMode: mode }); }
+    catch { setError({ message: 'DOCX export failed. Please try again in a modern browser.' }); }
   };
+
+  const filteredChits = chits.filter((chit) => {
+    const haystack = `${chit.target} ${chit.poi} ${chit.classification} ${chit.legalFoundation}`.toLowerCase();
+    if (poiSearch && !haystack.includes(poiSearch.toLowerCase())) return false;
+    if (tierFilter !== 'ALL' && chit.tier !== tierFilter) return false;
+    if (verifiedOnly && chit.factCheck?.status !== 'VERIFIED') return false;
+    return true;
+  });
 
   return <>
     <header className="hero">
@@ -115,52 +141,90 @@ function App() {
         <label>Committee<input value={form.committee} onChange={(e) => updateForm('committee', e.target.value)} placeholder="e.g. ECOFIN" /></label>
         <label>Agenda / Topic<textarea value={form.agenda} onChange={(e) => updateForm('agenda', e.target.value)} placeholder="e.g. Sovereign debt restructuring and development finance" /></label>
         <label>Portfolio / Country<input value={form.portfolio} onChange={(e) => updateForm('portfolio', e.target.value)} placeholder="e.g. Indonesia or IDN" /></label>
-        <label>Gemini API Key<input type="password" autoComplete="off" value={form.apiKey} onChange={(e) => updateForm('apiKey', e.target.value)} placeholder="Stored locally in this browser only" /></label>
-        <div className="row"><label className="check"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /> Remember key</label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear API Key</button></div>
-        <section className="contextPanel" id="research-context"><h2>Research Context</h2>
-          <label>Freeze Date<input type="date" value={researchContext.freezeDate} onChange={(e) => updateContext({ freezeDate: e.target.value })} /></label>
-          <label>Background Guide<input type="file" accept=".pdf,.docx,.txt,.md,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf" onChange={(e) => handleGuide(e.target.files?.[0])} /></label>
-          {researchContext.backgroundGuide && <div className="guideSummary"><b>{researchContext.backgroundGuide.documentName}</b><small>{researchContext.backgroundGuide.documentType} · {researchContext.backgroundGuide.relevantSections?.length || 0} relevant section(s)</small></div>}
-          <label>Additional Research Notes<textarea value={researchNoteDraft} onChange={(e) => setResearchNoteDraft(e.target.value)} placeholder="Focus on debt restructuring; Indonesia should remain non-aligned; verify user assertions independently." /></label>
-          <button type="button" onClick={addResearchNote}>Add Research Note</button>
-          <div className="noteList">{researchContext.researchNotes.map((note, i) => <button key={`${note}-${i}`} onClick={() => removeResearchNote(i)}>{note}<span>×</span></button>)}</div>
-          <div className="contextToggles"><label className="check"><input type="checkbox" checked={researchContext.useContextInResearch} onChange={(e) => updateContext({ useContextInResearch: e.target.checked })} /> Use context in research</label><label className="check"><input type="checkbox" checked={researchContext.useContextInPois} onChange={(e) => updateContext({ useContextInPois: e.target.checked })} /> Use context in POIs</label><label className="check"><input type="checkbox" checked={researchContext.enforceFreezeDate} onChange={(e) => updateContext({ enforceFreezeDate: e.target.checked })} /> Enforce freeze date</label><label className="check"><input type="checkbox" checked={researchContext.prioritizeBackgroundGuide} onChange={(e) => updateContext({ prioritizeBackgroundGuide: e.target.checked })} /> Prioritize background guide</label><label className="check"><input type="checkbox" checked={researchContext.allowPostFreezeSourcesForPreFreezeEvents} onChange={(e) => updateContext({ allowPostFreezeSourcesForPreFreezeEvents: e.target.checked })} /> Allow post-freeze sources for pre-freeze events</label></div>
-          <div className="noteUsage"><b>Use notes for:</b><label className="check"><input type="checkbox" checked={researchContext.noteUsage.research} onChange={(e) => updateNoteUsage('research', e.target.checked)} /> Research</label><label className="check"><input type="checkbox" checked={researchContext.noteUsage.poi} onChange={(e) => updateNoteUsage('poi', e.target.checked)} /> POI generation</label><label className="check"><input type="checkbox" checked={researchContext.noteUsage.evidenceVerification} onChange={(e) => updateNoteUsage('evidenceVerification', e.target.checked)} /> Evidence verification only</label></div>
-        </section>
-        <div className="badges"><button onClick={() => document.getElementById('research-context')?.scrollIntoView({ behavior: 'smooth' })}>📘 {researchContext.backgroundGuide ? 'Background Guide Attached' : 'No Guide'}</button>{researchContext.freezeDate && <button onClick={() => document.getElementById('research-context')?.scrollIntoView({ behavior: 'smooth' })}>📅 Freeze: {researchContext.freezeDate}</button>}<button onClick={() => document.getElementById('research-context')?.scrollIntoView({ behavior: 'smooth' })}>📝 {researchContext.researchNotes.length} Research Notes</button><button>🎯 {selected.length} Target Countries</button></div>
+        <label>Gemini API Key<div className="keyRow"><input type={showKey ? 'text' : 'password'} autoComplete="off" value={form.apiKey} onChange={(e) => updateForm('apiKey', e.target.value)} placeholder="Stored for this session by default" /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button></div></label>
+        <div className="row"><label className="check"><input type="checkbox" checked={form.rememberKey} onChange={(e) => updateForm('rememberKey', e.target.checked)} /> Save beyond this session</label><button onClick={() => { clearStoredKey(); setForm({ ...form, apiKey: '', rememberKey: false }); }}>Clear Key</button></div>
+
+        <h2>AI Model</h2>
+        <div className="modelBox" onFocus={() => !modelCatalog && form.apiKey.trim() && refreshModels(false)}>
+          <select value={modelMode} onChange={(e) => setModelMode(e.target.value)}>
+            <option value={MODEL_SELECTION_MODES.BEST}>✨ Best Available</option>
+            <option value={MODEL_SELECTION_MODES.ROTATION}>Smart Rotation</option>
+            <option value={MODEL_SELECTION_MODES.MANUAL}>Manual</option>
+          </select>
+          {modelMode === MODEL_SELECTION_MODES.MANUAL && <select aria-label="Main research model" value={manualModelId} onChange={(e) => setManualModelId(e.target.value)} onFocus={() => !modelCatalog && refreshModels(false)}>
+            {(modelCatalog?.compatible || []).map((m) => <option key={m.id} value={m.id}>{m.displayName} — ✓ Text generation · JSON recovery</option>)}
+          </select>}
+          <label>Source Review Model<select aria-label="Source review model" value={reviewModelId} onChange={(e) => setReviewModelId(e.target.value)} onFocus={() => !modelCatalog && refreshModels(false)}>{(modelCatalog?.compatible || []).map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></label>
+          <div className="row"><button type="button" onClick={() => refreshModels(false)} disabled={modelLoading}>{modelLoading ? 'Refreshing…' : 'Refresh Models'}</button><button type="button" onClick={() => refreshModels(true)} disabled={modelLoading}>Refresh Model Capabilities</button></div>
+          <ModelStatus modelInfo={modelInfo} modelCatalog={modelCatalog} modelMode={modelMode} />
+        </div>
         <h2>Targeting Mode</h2>
         <div className="modes">{modes.map(([id, label, help]) => <label key={id} className="mode"><input type="radio" checked={mode === id} onChange={() => setMode(id)} /> <b>{label}</b><small>{help}</small></label>)}</div>
+        <label>POIs to Generate<input type="number" min="1" max="250" value={poiCount} onChange={(e) => setPoiCount(Math.max(1, Math.min(250, Number(e.target.value) || 1)))} /></label><label>POIs per country<input type="number" min="1" max="100" value={poisPerCountry} onChange={(e) => { const n = Math.max(1, Math.min(100, Number(e.target.value) || 1)); setPoisPerCountry(n); if (selected.length) setPoiCount(Math.min(250, n * selected.length)); }} /></label>{selected.length > 0 && <small className="muted">{poisPerCountry} × {selected.length} countries = {Math.min(250, poisPerCountry * selected.length)} POIs</small>}<label>Research Depth<select value={researchDepth} onChange={(e) => setResearchDepth(e.target.value)}><option>Quick</option><option>Standard</option><option>Deep</option><option>Extensive</option></select></label><label className="check"><input type="checkbox" checked={extensiveLegalities} onChange={(e) => setExtensiveLegalities(e.target.checked)} /> Extensive Legalities</label>
         <label className="check"><input type="checkbox" checked={includeFollowUp} onChange={(e) => setIncludeFollowUp(e.target.checked)} /> Generate Follow-Up</label>
-        <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'AUTO-DISCOVERY ENABLED when Automatic or Hybrid mode is used.'}</div>
-        {Object.keys(sliders).map((key) => <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span><input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>)}
-        <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing…' : 'Generate Tactical Chits'}</button>
-        {error && <div className="error">{error}</div>}
+        <h2>POI Type</h2>
+        <div className="typeGrid" role="group" aria-label="POI type selection">{POI_TYPES.map((type) => <label key={type} className={`typeChip ${poiTypes.includes(type) ? 'active' : ''}`}>
+          <input type="checkbox" checked={poiTypes.includes(type)} onChange={() => setPoiTypes((current) => {
+            if (type === 'AUTO') return ['AUTO'];
+            const withoutAuto = current.filter((item) => item !== 'AUTO');
+            const next = withoutAuto.includes(type) ? withoutAuto.filter((item) => item !== type) : [...withoutAuto, type];
+            return next.length ? next : ['AUTO'];
+          })} /> {type}
+        </label>)}</div>
+
+        <div className="notice"><b>TARGETS: OPTIONAL</b><br />{selected.length ? `${selected.length} manual target(s) selected.` : 'GLOBAL RESEARCH ENABLED unless Selected Targets Only is used.'}</div>
+        {Object.keys(sliders).map((key) => { const info = key === 'length' ? lengthInfo(sliders.length) : null; return <label key={key} className="slider"><span>{key}<b>{sliders[key]}%</b></span>{info && <small>{info.lines}<br />{info.words}</small>}<input type="range" min="0" max="100" value={sliders[key]} onChange={(e) => setSliders({ ...sliders, [key]: Number(e.target.value) })} /></label>; })}
+        <button className="primary" onClick={runGeneration} disabled={busy}>{busy ? 'Synthesizing Tactical POIs…' : 'Generate Tactical POI Array'}</button>
+        {error && <ErrorBox error={error} />}
       </section>
-      <section className="panel mapPanel"><h2>Real World Target Map</h2><WorldMap selected={selected} setSelected={setSelected} portfolio={form.portfolio} /></section>
-      <aside className="panel queue"><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<button onClick={() => setSelected([])}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={target.name}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <div className="progress"><h2>SYNTHESIZING...</h2><p>{status || 'Validating evidence and pressure logic...'}</p></div>}</aside>
+      <section className="panel mapPanel"><h2>Real World Target Map</h2><WorldMap selected={selected} setSelected={setSelected} opposition={opposition} setOpposition={setOpposition} portfolio={form.portfolio} /></section>
+      <aside className="panel queue glass-sidebar"><details className="settingsPanel" open><summary>Generation Settings</summary><div className="settingsGrid"><span>POI Count<b>{poiCount}</b></span><span>POI Type<b>{poiTypes.join(', ')}</b></span><span>Target Mode<b>{mode}</b></span><span>Follow-ups<b>{includeFollowUp ? 'ON' : 'OFF'}</b></span><span>Model<b>{modelInfo?.model?.displayName || modelMode}</b></span><span>Reviewer<b>{modelInfo?.factCheckModel || reviewModelId || 'Auto'}</b></span><span>Research Depth<b>{researchDepth}</b></span><span>Extensive Legalities<b>{extensiveLegalities ? 'ON' : 'OFF'}</b></span><span>Opposition<b>{opposition.length}</b></span><span>Aggression<b>{sliders.aggression}</b></span><span>Controversy<b>{sliders.controversy}</b></span><span>Diplomacy<b>{sliders.diplomacy}</b></span><span>Length<b>{sliders.length}</b></span></div></details><h2>Selected Targets</h2>{selected.length ? selected.map((c) => <button key={c.iso} className="pill" onClick={() => setSelected(selected.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">No manual targets selected. Auto-discovery can generate anyway.</p>}<h2>Opposition Countries</h2>{opposition.length ? opposition.map((c) => <button key={c.iso} className="pill" onClick={() => setOpposition(opposition.filter((x) => x.iso !== c.iso))}>{c.name}<span>{c.iso}</span>×</button>) : <p className="muted">Right-click countries on the map to mark opposition targets.</p>}<button onClick={() => { setSelected([]); setOpposition([]); }}>Clear selections</button>{recommendations.length > 0 && <><h2>AI Recommended Targets</h2>{recommendations.map((target) => <div className="recommendation" key={`${target.name}-${target.reason}`}><b>{target.name}</b><small>{target.reason}</small></div>)}</>}{(busy || status) && <ProgressPanel status={status} poiCount={poiCount} activity={activity} />}</aside>
     </main>
-    {portfolioProfile && <section className="panel intel"><h2>Portfolio Intelligence Summary</h2><p>{portfolioProfile.summary}</p><div className="intelGrid">{(portfolioProfile.interests || []).map((item) => <span key={item}>{item}</span>)}</div></section>}
-    <section className="chits">{chits.map((chit, i) => <ChitCard key={`${chit.target}-${i}`} chit={chit} number={i + 1} note={(researchContext.poiNotes[chit.target] || [''])[0]} onSaveNote={savePoiNote} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} />)}</section>
+    {portfolioProfile && <PortfolioIntel profile={portfolioProfile} />}
+    {chits.length > 0 && <section className="poiWindow"><div className="arrayHeader"><div><span className="eyebrow">CHITFORGE</span><h2>TACTICAL POI ARRAY</h2><strong>{chits.length} / {poiCount} POIs GENERATED</strong>{modelInfo?.model && <strong>MODEL: {modelInfo.model.displayName}</strong>}<strong>FACT CHECK: 2-PASS</strong></div><div className="filters"><input aria-label="Search POIs" placeholder="Search POIs: UN Charter, debt, vote…" value={poiSearch} onChange={(e) => setPoiSearch(e.target.value)} /><select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)}><option>ALL</option><option>S</option><option>A</option><option>B</option></select><label className="check"><input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} /> Verified only</label></div><div className="actions"><button onClick={copyAll}>Copy All</button><button onClick={() => exportBrief()}>Download DOCX</button><button onClick={runGeneration} disabled={busy}>Regenerate All</button></div></div><div className="chits">{filteredChits.map((chit, i) => <ChitCard key={`${chit.target}-${i}-${chit.poi}`} chit={chit} number={i + 1} onCopy={copyText} onExport={() => exportBrief([chit])} onFollowUp={() => addFollowUp(i)} onRegenerate={() => regenerateOne(i)} />)}</div></section>}
   </>;
 }
 
-function ChitCard({ chit, number, note, onSaveNote, onCopy, onExport, onFollowUp }) {
-  const [draftNote, setDraftNote] = useState(note || '');
+function ModelStatus({ modelInfo, modelCatalog, modelMode }) {
+  const active = modelInfo?.model || modelCatalog?.compatible?.[0];
+  return <div className="modelStatus"><b>AI ENGINE</b>{active ? <><p>{modelInfo?.fallbackLog?.length ? '↻' : '●'} {active.displayName}</p><small>{modelMode === MODEL_SELECTION_MODES.BEST ? 'BEST AVAILABLE' : modelMode === MODEL_SELECTION_MODES.ROTATION ? 'SMART ROTATION' : 'MANUAL'} · {active.compatibilityStatus}</small>{modelInfo?.fallbackLog?.length > 0 && <small>Fallback from unavailable model</small>}</> : <small>Models are discovered after you enter one Gemini API key.</small>}{modelCatalog?.all?.length > 0 && <details><summary>Compatible models</summary>{modelCatalog.all.map((m) => <p key={m.id} className={m.structuredJson ? 'pass' : 'warn'}>{m.displayName} — {m.compatibilityStatus} — {Math.round(m.priority)} pts</p>)}</details>}</div>;
+}
+
+function ErrorBox({ error }) {
+  return <div className="error"><b>{error.category ? 'GEMINI ERROR' : 'MISSION ERROR'}</b><p>{error.message}</p>{import.meta.env.DEV && error.diagnostic && <pre>{error.diagnostic}</pre>}</div>;
+}
+
+function ProgressPanel({ status, poiCount, activity }) {
+  const currentIndex = Math.max(0, progressStages.indexOf(status?.stage));
+  const pct = Math.round(((currentIndex + (status?.done && status?.total ? status.done / status.total : 0.35)) / progressStages.length) * 100);
+  return <div className="progress glass-progress" aria-live="polite"><span className="eyebrow">CHITFORGE</span><h2>SYNTHESIS ENGINE</h2><strong>{status?.stage || 'INITIALIZING'}</strong><small>{status?.detail || 'Preparing tactical synthesis.'}</small><div className="bar"><i style={{ width: `${Math.min(100, pct)}%` }} /></div><b>{Math.min(100, pct)}%</b><p>POI {Math.min(status?.done || 0, status?.total || poiCount)} / {status?.total || poiCount}</p><div className="stageList">{progressStages.map((stage, index) => <span key={stage} className={index < currentIndex ? 'complete' : index === currentIndex ? 'active' : 'pending'}>{index < currentIndex ? '✓' : index === currentIndex ? '→' : '○'} {String(index + 1).padStart(2, '0')} {stage}</span>)}</div><div className="activityFeed">{activity.map((item, idx) => <p key={`${item.time}-${idx}`}><time>{item.time}</time> <span>{idx === 0 ? '→' : '✓'}</span> {item.detail || item.stage}</p>)}</div></div>;
+}
+
+function PortfolioIntel({ profile }) {
+  return <section className="panel intel glass-panel"><h2>Portfolio Intelligence</h2><p>{profile.summary}</p>{(profile.statements || []).map((statement, idx) => <div className="sourceCard" key={idx}><StatusBadge status={statement.status || 'MANUAL VERIFICATION'} /><p>{statement.text || statement.claim || statement}</p>{(statement.sources || profile.sources || []).slice(0, 2).map((source, i) => <SourceCard source={source} key={`${source.url}-${i}`} />)}</div>)}<div className="intelGrid">{(profile.interests || []).map((item) => <span key={item}>{item}</span>)}</div></section>;
+}
+
+
+function StatusBadge({ status }) {
+  const normalized = String(status || 'PENDING').toUpperCase().replace(/_/g, ' ');
+  const symbol = normalized === 'VERIFIED' ? '✓' : normalized === 'FAILED' ? '✕' : normalized === 'PENDING' ? '○' : '⚠';
+  return <span className={`statusBadge ${normalized.toLowerCase().replace(/\s+/g, '-')}`}>{symbol} {normalized}</span>;
+}
+
+function SourceCard({ source }) {
+  const domain = source.domain || domainFromUrl(source.url);
+  return <div className="sourceCard glass-source-card"><div><b>SOURCE</b><h3>{source.sourceName || 'Manual verification source'}</h3><p>Organization: {source.organization || 'Source organization unavailable'}<br />Published: {source.publicationDate || 'Publication date unavailable'}</p></div><div><b>STATUS</b><StatusBadge status={source.status || 'MANUAL VERIFICATION'} /><p><b>SOURCE QUALITY</b><br />{source.quality || 'LIMITED'}</p></div><p><b>CLAIM SUPPORTED</b><br />{source.claimSupported || source.claim || 'Claim requires manual source review.'}</p>{source.url && <a className="sourceLink" href={source.url} target="_blank" rel="noreferrer">OPEN SOURCE ↗ {domain && <small>{domain}</small>}</a>}{source.verificationReason && <small>{source.verificationReason}</small>}</div>;
+}
+
+function ChitCard({ chit, number, onCopy, onFollowUp, onRegenerate }) {
   const full = JSON.stringify(chit, null, 2);
-  return <article className="chit">
-    <div className="chitHead"><b>CHIT #{String(number).padStart(2, '0')}</b><span>TARGET: {chit.target}</span><em>{chit.pressureProfile?.classification}</em></div>
-    <section><h3>OBJECTIVE</h3><p><b>TARGET:</b> {chit.target}</p></section>
-    <section className="pressure"><h3>PRESSURE PROFILE</h3><p>Aggression {chit.pressureProfile?.aggression}% · Controversy {chit.pressureProfile?.controversy}% · Diplomacy {chit.pressureProfile?.diplomacy}% · Length {chit.pressureProfile?.length}%</p><strong>PRESSURE SCORE: {chit.pressureProfile?.score}/100</strong></section>
-    <section><h3>POI</h3><blockquote>“{chit.poi}”</blockquote></section>
-    <section><h3>LEGAL / POLICY FOUNDATION</h3><p>{chit.legalPolicyFoundation}</p></section>
-    <section><h3>EVIDENCE</h3>{(chit.evidence || []).map((e, idx) => <div className="evidence" key={`${e.url}-${idx}`}><b>Source:</b> {e.title || e.source}<br /><b>Organization:</b> {e.organization || e.publication || 'VERIFICATION REQUIRED'}<br /><b>Date:</b> {e.date || e.publishedAt || 'VERIFICATION REQUIRED'}<br /><b>Event date:</b> {e.eventDate || 'VERIFICATION REQUIRED'}<br /><b>Freeze status:</b> {e.freezeStatus || 'VERIFICATION REQUIRED'}<br /><b>URL:</b> {e.url ? <a href={e.url} target="_blank" rel="noreferrer">{e.url}</a> : 'VERIFICATION REQUIRED'}<br /><b>Classification:</b> {e.sourceClassification || e.status || 'VERIFICATION REQUIRED'}<br /><b>Claim:</b> {e.claim}</div>)}</section>
-    <section><h3>DOCUMENTED PRESSURE POINT</h3><p><b>Portfolio position:</b> {chit.pressurePoint?.portfolioPosition}</p><p><b>Target position/action:</b> {chit.pressurePoint?.targetPositionAction}</p><p><b>Conflict/contradiction:</b> {chit.pressurePoint?.conflict}</p><p><b>Why this matters to the agenda:</b> {chit.pressurePoint?.agendaRelevance}</p></section>
-    <section><h3>LEGAL / TACTICAL TYPE</h3><div className="tags">{(chit.legalTacticalTypes || []).map((type) => <span key={type}>{type}</span>)}</div></section>
-    <section><h3>TACTICAL IMPACT</h3><p>{chit.tacticalImpact}</p></section>
-    {chit.followUp && <section><h3>OPTIONAL FOLLOW-UP</h3><p><b>Expected evasion:</b> {chit.followUp.expectedEvasion}</p><p><b>Follow-up:</b> {chit.followUp.question}</p></section>}
-    <section><h3>VALIDATION</h3><div className="checks">{(chit.validation || []).map((v) => <span key={v.test} className={v.pass ? 'pass' : 'warn'}>{v.pass ? '✓' : '!'} {v.test}</span>)}</div></section>
-    <section><h3>POI Notes</h3><textarea className="poiNote" value={draftNote} onChange={(e) => setDraftNote(e.target.value)} placeholder="Notes for this specific POI only. They do not regenerate the chit." /><div className="actions"><button onClick={() => onSaveNote(chit.target, draftNote)}>Save Note</button><button onClick={() => { setDraftNote(''); onSaveNote(chit.target, ''); }}>Delete Note</button></div></section>
-    <div className="actions"><button onClick={() => onCopy(chit.poi)}>Copy POI</button><button onClick={() => onCopy(full)}>Copy Full Chit</button><button onClick={onFollowUp}>Generate Follow-Up</button><button onClick={onExport}>Export</button></div>
+  return <article className="chit glassCard">
+    <div className="chitHead"><b>POI #{number}</b><span>{chit.tier || 'B'}-TIER · {chit.classification || chit.pressureProfile?.classification}</span></div>
+    <p className="targetLine">TARGET: <strong>{chit.target}</strong></p>
+    <blockquote className="poiQuestion" dangerouslySetInnerHTML={{ __html: `“${renderMarkdownBold(chit.poi)}”` }} />
+    <section className="metrics"><span>{chit.wordCount} WORDS</span><span>{chit.estimatedLines} </span><span>~{chit.estimatedSeconds} SEC</span><span>PRESSURE {chit.pressureScore ?? chit.pressureProfile?.score}/100</span><span>AGGRESSION {chit.pressureProfile?.aggression}%</span><span>CONTROVERSY {chit.pressureProfile?.controversy}%</span><span>DIPLOMACY {chit.pressureProfile?.diplomacy}%</span><span>LENGTH {chit.pressureProfile?.length}%</span></section>
+    <div className="accordion"><details><summary>Legal Foundation</summary><p>{chit.legalFoundation || chit.legalPolicyFoundation}</p></details><details><summary>Evidence & Sources</summary>{(chit.evidence || []).map((e, idx) => <SourceCard source={e} key={`${e.url}-${idx}`} />)}</details><details><summary>Documented Issue</summary><p><b>Portfolio position:</b> {chit.pressurePoint?.portfolioPosition}</p><p><b>Target position/action:</b> {chit.pressurePoint?.targetPositionAction}</p><p><b>Conflict:</b> {chit.pressurePoint?.conflict}</p><p><b>Agenda relevance:</b> {chit.pressurePoint?.agendaRelevance}</p></details><details><summary>Tactical Impact</summary><p>{chit.tacticalImpact}</p><div className="tags">{(chit.legalTacticalTypes || []).map((type) => <span key={type}>{type}</span>)}<span>{chit.classificationReason}</span></div></details><details><summary>Verification</summary><StatusBadge status={chit.factCheck?.status || 'PENDING'} /><p><b>Legal:</b> {chit.factCheck?.legalAssessment?.status || 'UNCERTAIN'} — {chit.factCheck?.legalAssessment?.reason}</p><p><b>Classification:</b> {chit.factCheck?.classificationAssessment?.status || 'UNCERTAIN'} — {chit.factCheck?.classificationAssessment?.reason}</p></details><details open={!!chit.followUp}><summary>Follow-up</summary>{chit.followUp ? <><p><b>Expected evasion:</b> {chit.followUp.expectedEvasion}</p><p><b>Follow-up:</b> {chit.followUp.question}</p></> : <p className="muted">No follow-up generated yet.</p>}</details></div>
+    <div className="actions"><button onClick={() => onCopy(chit.poi)}>Copy POI</button><button onClick={() => onCopy(full)}>Copy Full</button><button onClick={onRegenerate}>Regenerate</button><button onClick={onFollowUp}>Generate Follow-up</button></div>
   </article>;
 }
 
