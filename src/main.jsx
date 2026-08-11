@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LIQUID_GLASS_PROFILES, createLiquidGlassMap } from './liquidGlass.js';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { WorldMap } from './map.jsx';
@@ -13,9 +14,8 @@ import { sourceStatusLabel } from './sourceIntegrity.js';
 
 const defaultSliders = { aggression: 0, controversy: 0, diplomacy: 0, length: 0 };
 const modes = [
-  ['hybrid', 'Hybrid', 'AI recommends targets; you can approve/remove map selections.'],
-  ['automatic', 'Automatic', 'AI chooses agenda-relevant targets when none are selected.'],
-  ['manual', 'Manual', 'Use only countries selected on the real world map.'],
+  ['selected_global', 'Selected + Global Research', 'Selected countries are primary targets; AI may add stronger agenda-relevant targets.'],
+  ['selected_only', 'Selected Targets Only', 'Use only countries selected on the real world map.'],
 ];
 const progressStages = ['RESEARCHING PORTFOLIO', 'ANALYZING TARGETS', 'IDENTIFYING PRESSURE POINTS', 'GENERATING POIs', 'VALIDATING EVIDENCE', 'FINALIZING TACTICAL BRIEF'];
 
@@ -32,14 +32,35 @@ function App() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [poiFilter, setPoiFilter] = useState({ text: '', tier: 'all', country: 'all', verifiedOnly: false });
   const [selected, setSelected] = useState([]);
-  const [mode, setMode] = useState('hybrid');
+  const [mode, setMode] = useState('selected_global');
   const [includeFollowUp, setIncludeFollowUp] = useState(false);
+  const [poiTypes, setPoiTypes] = useState(['AUTO']);
+  const [activity, setActivity] = useState([]);
   const [portfolioProfile, setPortfolioProfile] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [chits, setChits] = useState([]);
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [modelMode, setModelMode] = useState(MODEL_SELECTION_MODES.BEST);
+  const [manualModelId, setManualModelId] = useState('');
+  const [modelCatalog, setModelCatalog] = useState(null);
+  const [modelInfo, setModelInfo] = useState(null);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [customBackground, setCustomBackground] = useState('');
+  const [uiOpacity, setUiOpacity] = useState(100);
+  const customBackgroundRef = useRef('');
+  const sliderCommitFrame = useRef(0);
+  useLiquidGlassResizeObserver();
+
+  const commitSlider = useCallback((key, value) => {
+    cancelAnimationFrame(sliderCommitFrame.current);
+    sliderCommitFrame.current = requestAnimationFrame(() => {
+      setSliders((current) => current[key] === value ? current : { ...current, [key]: value });
+    });
+  }, []);
+
+  useEffect(() => () => cancelAnimationFrame(sliderCommitFrame.current), []);
 
   const updateForm = (key, value) => {
     const next = { ...form, [key]: value };
@@ -76,7 +97,7 @@ function App() {
   const addFollowUp = async (index) => {
     setBusy(true);
     try {
-      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: setStatus });
+      const updated = await generateFollowUp({ form, sliders, chit: chits[index], apiKey: form.apiKey, onProgress: pushProgress, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
     } catch (err) { showError(err); }
     finally { setBusy(false); setStatus(null); }
@@ -205,4 +226,44 @@ function ChitCard({ chit, number, onCopy, onFollowUp, onRegenerate }) {
   </article>;
 }
 
+
+
+function useLiquidGlassResizeObserver() {
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    let frame = 0;
+    const update = (entries) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        entries.forEach((entry) => {
+          const { width, height } = entry.contentRect;
+          entry.target.style.setProperty('--glass-width', `${Math.round(width)}px`);
+          entry.target.style.setProperty('--glass-height', `${Math.round(height)}px`);
+        });
+      });
+    };
+    const observer = new ResizeObserver(update);
+    document.querySelectorAll('.hero, .panel, .chit, .poiWindow, .mapWrap, .glassSliderShell, .glassSwitch').forEach((node) => observer.observe(node));
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, []);
+}
+
+function LiquidGlassFilters() {
+  const filters = useMemo(() => {
+    if (typeof document === 'undefined') return [];
+    return Object.entries(LIQUID_GLASS_PROFILES).map(([name, profile]) => [`liquid-glass-filter-${name}`, createLiquidGlassMap(profile)]);
+  }, []);
+
+  return <svg className="liquidFilterSvg" width="0" height="0" aria-hidden="true" focusable="false" colorInterpolationFilters="sRGB">
+    <defs>{filters.map(([id, map]) => <filter key={id} id={id} x="-20%" y="-20%" width="140%" height="140%" filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">
+      <feImage href={map.displacementHref} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="displacement_map" />
+      <feDisplacementMap in="SourceGraphic" in2="displacement_map" scale={map.scale} xChannelSelector="R" yChannelSelector="G" result="refracted" />
+      <feImage href={map.specularHref} x="0" y="0" width={map.width} height={map.height} preserveAspectRatio="none" result="specular_map" />
+      <feGaussianBlur in="specular_map" stdDeviation={map.blurLevel} result="specular_soft" />
+      <feBlend in="refracted" in2="specular_soft" mode="screen" />
+    </filter>)}</defs>
+  </svg>;
+}
+
 createRoot(document.getElementById('root')).render(<App />);
+
