@@ -20,33 +20,30 @@ const DEPRECATED = /(deprecated|retired|shutdown|legacy)/i;
 
 export const CHITFORGE_RESPONSE_SCHEMA = {
   type: 'object',
-  required: ['research_summary', 'portfolio_alignment', 'targets'],
+  required: ['pois'],
   properties: {
-    research_summary: { type: 'string' },
-    portfolio_alignment: { type: 'string' },
-    portfolioProfile: { type: 'object' },
-    recommendedTargets: { type: 'array' },
-    targets: {
+    pois: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['country', 'reason_for_targeting', 'pressure_points'],
+        required: ['target', 'question', 'legalFoundation', 'evidence', 'documentedIssue', 'classification', 'classificationReason', 'tacticalImpact', 'followUp'],
         properties: {
-          country: { type: 'string' }, iso: { type: 'string' }, reason_for_targeting: { type: 'string' },
-          pressure_points: {
+          target: { type: 'string', description: 'Target country or delegation.' },
+          question: { type: 'string', description: 'The concise MUN Point of Information question.' },
+          legalFoundation: { type: 'string', description: 'Relevant treaty, resolution, institution rule, legal framework, or political commitment with binding status distinguished.' },
+          evidence: {
             type: 'array',
             items: {
               type: 'object',
-              required: ['poi', 'legal_foundation', 'evidence', 'documented_contradiction', 'tactical_impact', 'classification', 'expected_evasion', 'follow_up'],
-              properties: {
-                title: { type: 'string' }, poi: { type: 'string' }, legal_foundation: { type: 'string' },
-                evidence: { type: 'array', items: { type: 'object', required: ['claim', 'source_name', 'source_url'], properties: { claim: { type: 'string' }, source_name: { type: 'string' }, source_url: { type: 'string' }, sourceClassification: { type: 'string' } } } },
-                documented_contradiction: { type: 'string' }, tactical_impact: { type: 'string' }, classification: { type: 'string' },
-                contradictionStrength: { type: 'number' }, agendaRelevanceScore: { type: 'number' }, portfolioAlignmentScore: { type: 'number' }, legalRelevanceScore: { type: 'number' },
-                expected_evasion: { nullable: true, type: 'string' }, follow_up: { nullable: true, type: 'string' },
-              },
+              required: ['sourceName', 'organization', 'publicationDate', 'url', 'claimSupported', 'sourceType', 'confidence'],
+              properties: { claim: { type: 'string' }, sourceName: { type: 'string' }, organization: { type: 'string' }, publicationDate: { type: 'string' }, url: { type: 'string' }, claimSupported: { type: 'string' }, sourceType: { type: 'string' }, confidence: { type: 'number' }, sourceUrl: { type: 'string' } },
             },
           },
+          documentedIssue: { type: 'string' },
+          classification: { type: 'string' },
+          classificationReason: { type: 'string' },
+          tacticalImpact: { type: 'string' },
+          followUp: { type: 'string', nullable: true },
         },
       },
     },
@@ -54,7 +51,18 @@ export const CHITFORGE_RESPONSE_SCHEMA = {
 };
 
 export const FOLLOW_UP_RESPONSE_SCHEMA = { type: 'object', required: ['expectedEvasion', 'question'], properties: { expectedEvasion: { type: 'string' }, question: { type: 'string' } } };
-export const FACT_CHECK_RESPONSE_SCHEMA = { type: 'object', required: ['overallStatus', 'confidence', 'claims', 'legalAssessment'], properties: { overallStatus: { type: 'string' }, confidence: { type: 'number' }, claims: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, status: { type: 'string' }, reason: { type: 'string' }, sourceRelevant: { type: 'boolean' } } } }, legalAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } } } };
+export const FACT_CHECK_RESPONSE_SCHEMA = {
+  type: 'object',
+  required: ['overallStatus', 'confidence', 'claims', 'legalAssessment', 'classificationAssessment'],
+  properties: {
+    overallStatus: { type: 'string' },
+    confidence: { type: 'number' },
+    claims: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, status: { type: 'string' }, source: { type: 'string' }, reason: { type: 'string' }, sourceRelevant: { type: 'boolean' } } } },
+    legalAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } },
+    classificationAssessment: { type: 'object', properties: { status: { type: 'string' }, reason: { type: 'string' } } },
+  },
+};
+
 
 export function modelId(model) { return (model.name || model.id || '').replace(/^models\//, ''); }
 export function displayModelName(model) { return model.displayName || model.display_name || modelId(model).replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
