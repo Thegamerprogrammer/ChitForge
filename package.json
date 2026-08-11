@@ -1,0 +1,30 @@
+{
+  "name": "chitforge",
+  "private": false,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "d3-geo": "latest",
+    "mammoth": "^1.12.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "topojson-client": "latest",
+    "vite": "latest",
+    "world-atlas": "latest",
+    "world-countries": "^5.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "eslint-plugin-react-refresh": "latest",
+    "globals": "latest"
+  }
+}
