@@ -7,21 +7,18 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "test": "node --test"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^2.16.0",
     "@vitejs/plugin-react": "latest",
     "d3-geo": "latest",
-    "docx": "^9.7.1",
+    "mammoth": "^1.12.1",
     "react": "latest",
     "react-dom": "latest",
     "topojson-client": "latest",
     "vite": "latest",
     "world-atlas": "latest",
-    "world-countries": "^5.1.0",
-    "zod": "^4.4.3"
+    "world-countries": "^5.1.0"
   },
   "devDependencies": {
     "@eslint/js": "latest",

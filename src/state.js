@@ -1,6 +1,5 @@
 const KEY = 'chitforgeGeminiKey';
 const REMEMBER = 'chitforgeRememberKey';
-const SETTINGS = 'chitforgeSettings';
 
 export function loadStoredKey() {
   const rememberKey = localStorage.getItem(REMEMBER) === 'true';
@@ -17,15 +16,6 @@ export function saveApiKey(key, rememberKey) {
     localStorage.removeItem(KEY);
     localStorage.setItem(REMEMBER, 'false');
   }
-}
-
-export function loadSettings() {
-  try { return JSON.parse(localStorage.getItem(SETTINGS) || '{}'); }
-  catch { return {}; }
-}
-
-export function saveSettings(settings) {
-  localStorage.setItem(SETTINGS, JSON.stringify(settings));
 }
 
 export function clearStoredKey() {
