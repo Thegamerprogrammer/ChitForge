@@ -11,6 +11,8 @@ ChitForge is an open-source, frontend-only Model United Nations tactical POI/chi
 - Tactical sliders for Aggression, Controversy, Diplomacy, and Length.
 - Pressure score and classification derived from sliders, evidence strength, contradiction strength, agenda relevance, and legal/policy relevance.
 - Optional follow-ups: disabled by default, available during generation or later from an existing chit.
+- First-class Research Context with freeze dates, research notes, POI-level notes, and background-guide extraction for TXT/MD/DOCX files; PDF uploads are accepted as metadata with guidance to convert or paste excerpts when browser text extraction is unavailable.
+- Freeze-date source labeling for before-freeze evidence, post-freeze sources describing pre-freeze events, and post-freeze events.
 - Professional Word-compatible `.docx` tactical brief export.
 - Frontend-only Gemini integration. The user supplies their own Gemini API key.
 
@@ -76,9 +78,19 @@ ChitForge has no backend and never includes a developer-owned key. The key is se
 
 Country geometry is provided by the `world-atlas` npm package, which distributes Natural Earth public-domain map data in TopoJSON form. Rendering uses `topojson-client` and `d3-geo`. Review upstream package licenses before redistributing modified datasets.
 
+## Research Context
+
+Use the Research Context panel to attach structured MUN context to a session: freeze date, background guide, research-level notes, context toggles, and note usage controls for research, POI generation, or evidence verification. Background guides and user notes are treated as context/instructions, not cited evidence; factual claims must still be verified through authoritative sources.
+
+Supported background-guide extraction:
+
+- TXT and MD via browser text reading.
+- DOCX via `mammoth` browser extraction.
+- PDF file metadata can be attached, but this build asks users to convert PDFs to TXT/MD/DOCX or paste relevant excerpts so private conference files are not pushed through an unsafe parser.
+
 ## DOCX Export
 
-The browser creates a Word-compatible `.docx` download containing committee metadata, portfolio intelligence summary, pressure profile, POI, legal/policy foundation, evidence and sources, documented pressure point, legal/tactical classifications, tactical impact, validation, and optional follow-up sections when present.
+The browser creates a Word-compatible `.docx` download containing committee metadata, MUN freeze date and methodology, portfolio intelligence summary, pressure profile, POI, legal/policy foundation, evidence and sources, documented pressure point, legal/tactical classifications, tactical impact, validation, and optional follow-up sections when present.
 
 ## Contributing
 

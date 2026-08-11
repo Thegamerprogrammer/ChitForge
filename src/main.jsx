@@ -13,27 +13,27 @@ import { domainFromUrl } from './sourceValidation.js';
 
 const defaultSliders = { aggression: 0, controversy: 0, diplomacy: 0, length: 0 };
 const modes = [
-  ['selected_global', 'Selected + Global Research', 'Selected countries are primary targets; AI may add stronger agenda-relevant targets.'],
-  ['selected_only', 'Selected Targets Only', 'Use only countries selected on the real world map.'],
+  ['hybrid', 'Hybrid', 'AI recommends targets; you can approve/remove map selections.'],
+  ['automatic', 'Automatic', 'AI chooses agenda-relevant targets when none are selected.'],
+  ['manual', 'Manual', 'Use only countries selected on the real world map.'],
 ];
 const progressStages = ['INITIALIZING', 'READING AGENDA', 'ANALYZING PORTFOLIO', 'ANALYZING FOREIGN POLICY', 'MAPPING TARGETS', 'RESEARCHING EVIDENCE', 'ANALYZING LEGAL FRAMEWORKS', 'GENERATING POIs', 'VALIDATING STRUCTURE', 'FACT CHECK PASS 1', 'FACT CHECK PASS 2', 'CALCULATING PRESSURE', 'FINALIZING CHITS', 'PREPARING DOCX'];
 
 function App() {
   const stored = useMemo(() => loadStoredKey(), []);
+  const savedContext = useMemo(() => loadResearchSession(), []);
   const [form, setForm] = useState({ committee: '', agenda: '', portfolio: '', apiKey: stored.key, rememberKey: stored.rememberKey });
-  const [showKey, setShowKey] = useState(false);
   const [sliders, setSliders] = useState(defaultSliders);
-  const [poiCount, setPoiCount] = useState(5);
   const [selected, setSelected] = useState([]);
-  const [mode, setMode] = useState('selected_global');
+  const [mode, setMode] = useState('hybrid');
   const [includeFollowUp, setIncludeFollowUp] = useState(false);
   const [poiTypes, setPoiTypes] = useState(['AUTO']);
   const [activity, setActivity] = useState([]);
   const [portfolioProfile, setPortfolioProfile] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [chits, setChits] = useState([]);
-  const [status, setStatus] = useState(null);
-  const [error, setError] = useState(null);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [modelMode, setModelMode] = useState(MODEL_SELECTION_MODES.BEST);
   const [manualModelId, setManualModelId] = useState('');
@@ -53,7 +53,6 @@ function App() {
     const next = { ...form, [key]: value };
     setForm(next);
     if (key === 'apiKey' || key === 'rememberKey') saveApiKey(next.apiKey, next.rememberKey);
-    if (key === 'apiKey') { setModelCatalog(null); setManualModelId(''); setModelInfo(null); }
   };
 
   const showError = (err) => setError({ message: err.message || 'Generation failed. Please try again.', diagnostic: err.diagnostic, status: err.status, category: err.category });
@@ -71,10 +70,11 @@ function App() {
     } catch (err) { showError(err); }
     finally { setModelLoading(false); }
   };
+  const savePoiNote = (target, note) => setResearchContext((ctx) => ({ ...ctx, poiNotes: { ...ctx.poiNotes, [target]: note ? [note] : [] } }));
 
   const runGeneration = async () => {
-    const validation = validateMissionInputs({ ...form, poiCount });
-    setError(validation ? { message: validation } : null);
+    const validation = validateMissionInputs({ ...form, mode });
+    setError(validation);
     if (validation) return;
     setBusy(true);
     setChits([]);
@@ -85,14 +85,12 @@ function App() {
       setPortfolioProfile(result.portfolioProfile);
       setRecommendations(result.recommendedTargets || []);
       setChits(result.chits);
-      setModelInfo(result.modelInfo || null);
-      if (result.chits.length < poiCount && mode !== 'selected_only') setError({ message: `${result.chits.length} / ${poiCount} POIs generated. Gemini did not return enough distinct, defensible POIs after retry attempts. No duplicates were inserted.` });
-      if (!result.chits.length) setError({ message: mode === 'selected_only' && !selected.length ? 'Selected Targets Only needs at least one selected target. Zero selected targets is valid in Selected + Global Research mode.' : 'No defensible targets were discovered. Try Selected + Global Research or refine the agenda.' });
+      if (!result.chits.length) setError('No defensible targets were discovered. Try Hybrid or Manual mode, or refine the agenda.');
     } catch (err) {
-      showError(err);
+      setError(err.message || 'Generation failed. Please try again.');
     } finally {
       setBusy(false);
-      setStatus(null);
+      setStatus('');
     }
   };
 
@@ -110,12 +108,15 @@ function App() {
     try {
       const updated = await regenerateChit({ form, sliders, chit: chits[index], existingChits: chits.filter((_, i) => i !== index), apiKey: form.apiKey, includeFollowUp, onProgress: pushProgress, modelSelection });
       setChits((items) => items.map((item, i) => (i === index ? updated : item)));
-    } catch (err) { showError(err); }
-    finally { setBusy(false); setStatus(null); }
+    } catch (err) {
+      setError(err.message || 'Could not generate follow-up.');
+    } finally {
+      setBusy(false);
+      setStatus('');
+    }
   };
 
-  const copyText = (text) => navigator.clipboard?.writeText(text).catch(() => setError({ message: 'Clipboard access was blocked by the browser.' }));
-  const copyAll = () => copyText(chits.map((chit, index) => `POI ${index + 1} — ${chit.target}\n${chit.poi}`).join('\n\n'));
+  const copyText = (text) => navigator.clipboard?.writeText(text).catch(() => setError('Clipboard access was blocked by the browser.'));
   const exportBrief = (items = chits) => {
     try { pushProgress({ stage: 'PREPARING DOCX', detail: 'Preparing professional DOCX tactical brief.', done: items.length, total: items.length || 1 }); downloadBrief({ form, sliders, portfolioProfile, chits: items, poiCount, selectedTargets: selected, modelInfo, targetMode: mode }); }
     catch { setError({ message: 'DOCX export failed. Please try again in a modern browser.' }); }
@@ -131,7 +132,7 @@ function App() {
 
   return <>
     <header className="hero">
-      <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POI arrays.</p></div>
+      <div><span className="eyebrow">Diplomatic Intelligence Terminal</span><h1>ChitForge</h1><p>Portfolio intelligence → pressure-point discovery → defensible MUN POIs.</p></div>
       <button onClick={() => exportBrief()} disabled={!chits.length}>Download Tactical Brief (.docx)</button>
     </header>
     <main className="layout">

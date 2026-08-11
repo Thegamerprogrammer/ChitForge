@@ -45,11 +45,9 @@ export async function regenerateChit({ form, sliders, chit, existingChits, apiKe
   return mission.chits[0] || chit;
 }
 
-export async function generateFollowUp({ form, sliders, chit, apiKey, onProgress, modelSelection }) {
-  onProgress?.({ stage: 'GENERATING FOLLOW-UP', detail: `Generating optional follow-up for ${chit.target}...`, done: 0, total: 1 });
-  const prompt = `Return STRICT JSON only, no markdown fences. Generate an optional follow-up for this MUN POI.\nAGENDA: ${form.agenda}\nPORTFOLIO: ${form.portfolio}\nSLIDERS: ${JSON.stringify(sliders)}\nEXISTING CHIT: ${JSON.stringify(chit)}\nReturn {"expectedEvasion":"...","question":"..."}. The follow-up must be short, direct, evidence-based, and must return to the original pressure point. Do not introduce unrelated issues, ceremonial openings, or new unsupported sources.`;
-  const response = await callGemini(apiKey, prompt, { ...modelSelection, schema: FOLLOW_UP_RESPONSE_SCHEMA });
-  const text = response.text;
+async function callGemini(apiKey, prompt) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
   try {
     const parsed = extractJson(text);
     return { ...chit, followUp: { expectedEvasion: parsed.expectedEvasion || 'MANUAL VERIFICATION', question: parsed.question || 'What evidence addresses the original contradiction directly?' } };
@@ -112,8 +110,14 @@ async function recoverMission({ apiKey, text, ctx, modelSelection, modelInfo }) 
       const repair = await repairJsonWithGemini(apiKey, text, { modelSelection, schema: CHITFORGE_RESPONSE_SCHEMA });
       text = repair.text;
     }
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.map((part) => part.text).join('\n') || '';
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Gemini request timed out. Try fewer targets or a shorter agenda.', { cause: error });
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  throw new GeminiError("Gemini returned a response that did not match ChitForge's required format.", { category: 'schema-failure' });
 }
 
 function buildFactCheckPrompt({ form, poi, pass }) {

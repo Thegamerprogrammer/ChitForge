@@ -1,4 +1,4 @@
-import { countWords, speakingSeconds, stripMarkdown } from './format.js';
+import { getFreezeStatus } from './context.js';
 
 const validationTests = ['Agenda relevance', 'Portfolio alignment', 'Target relevance', 'Evidence exists', 'No fabricated citation', 'Legal classification accurate', 'POI usable in MUN', 'Aggression matches slider', 'Controversy matches slider', 'Diplomacy matches slider', 'Length matches slider', 'Word count calculated', 'Speaking time calculated', 'Important phrases emphasized', 'No ceremonial opening', 'Simple English', 'Direct question', 'Strong pressure point', 'Distinct tactical purpose'];
 
@@ -12,7 +12,7 @@ export function normalizeClassification(value) {
 
 const ceremonial = /^(would|could|may|can)\s+(the\s+)?(distinguished|honou?rable|esteemed|delegate|delegation|representative)|^would\s+the\s+delegation\s+kindly/i;
 
-export function validateMissionInputs({ agenda, portfolio, apiKey, poiCount }) {
+export function validateMissionInputs({ agenda, portfolio, apiKey, mode }) {
   if (!agenda.trim()) return 'Enter an agenda/topic.';
   if (!portfolio.trim()) return 'Enter your portfolio/country.';
   if (!apiKey.trim()) return 'Missing Gemini API key. Enter your key and try again.';
@@ -20,8 +20,8 @@ export function validateMissionInputs({ agenda, portfolio, apiKey, poiCount }) {
   return '';
 }
 
-export function calculatePressureScore(sliders, evidenceStrength = 55, contradictionStrength = 55, agendaRelevance = 70, portfolioAlignment = 70, legalRelevance = 60) {
-  const score = Math.round(evidenceStrength * 0.25 + contradictionStrength * 0.2 + agendaRelevance * 0.2 + portfolioAlignment * 0.15 + legalRelevance * 0.1 + sliders.aggression * 0.1);
+export function calculatePressureScore(sliders, evidenceStrength = 55, contradictionStrength = 55, agendaRelevance = 70, legalRelevance = 60) {
+  const score = Math.round(sliders.aggression * 0.26 + sliders.controversy * 0.24 + evidenceStrength * 0.18 + contradictionStrength * 0.16 + agendaRelevance * 0.1 + legalRelevance * 0.06);
   return Math.max(0, Math.min(100, score));
 }
 
@@ -34,15 +34,18 @@ export function classifyPressure(score, types = []) {
   return 'ACCOUNTABILITY';
 }
 
-function parseJson(raw) {
-  const text = raw.trim();
-  if (/^```/i.test(text) || /```$/i.test(text)) throw new Error('Gemini returned Markdown fences instead of strict JSON.');
-  try { return JSON.parse(text); }
-  catch (cause) { throw new Error('Gemini returned an invalid structured response.', { cause }); }
-}
-
-
 export function normalizeMission(raw, ctx) {
+  const fallbackChit = (target = 'AUTO-DISCOVERED TARGET') => ({
+    target,
+    pressureProfile: { ...ctx.sliders, score: calculatePressureScore(ctx.sliders, 0, 0, 30, 20), classification: 'VERIFICATION REQUIRED' },
+    poi: 'VERIFICATION REQUIRED: The model response could not be parsed into a defensible Point of Information.',
+    legalPolicyFoundation: 'VERIFICATION REQUIRED',
+    evidence: [{ title: 'Malformed or unverifiable model response', organization: 'VERIFICATION REQUIRED', date: 'VERIFICATION REQUIRED', url: '', sourceClassification: 'OTHER', claim: 'The response did not match the required schema.' }],
+    pressurePoint: { portfolioPosition: 'VERIFICATION REQUIRED', targetPositionAction: 'VERIFICATION REQUIRED', conflict: 'VERIFICATION REQUIRED', agendaRelevance: 'VERIFICATION REQUIRED' },
+    legalTacticalTypes: ['VERIFICATION REQUIRED'],
+    tacticalImpact: 'Insufficient verified evidence to assess pressure.',
+    validation: validationTests.map((test) => ({ test, pass: false, notes: 'VERIFICATION REQUIRED' })),
+  });
   try {
     const parsed = typeof raw === 'string' ? parseJson(raw) : raw;
     validateRawMissionShape(parsed, ctx.poiCount);
