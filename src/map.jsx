@@ -27,7 +27,7 @@ function normalizeCountry(geo) {
   return byId || byName || { iso: String(geo.id), name: geo.properties.name };
 }
 
-export function WorldMap({ selected, setSelected, portfolio }) {
+export function WorldMap({ selected, setSelected, portfolio, onCountryAction, searchFocusIso }) {
   const [tooltip, setTooltip] = useState(null);
   const tooltipFrame = useRef(0);
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
@@ -41,12 +41,9 @@ export function WorldMap({ selected, setSelected, portfolio }) {
   }, []);
   const selectedIso = new Set(selected.map((c) => c.iso));
   const portfolioText = portfolio.trim().toLowerCase();
-  const applyTransform = useCallback((nextView) => {
-    mapGroupRef.current?.setAttribute('transform', `translate(${nextView.x} ${nextView.y}) scale(${nextView.scale})`);
-  }, []);
-  const toggle = (country) => {
-    if (dragRef.current.moved) return;
-    setSelected(selectedIso.has(country.iso) ? selected.filter((c) => c.iso !== country.iso) : [...selected, { iso: country.iso, name: country.name }]);
+  const toggle = (country, opposition = false) => {
+    if (onCountryAction) { onCountryAction(country, opposition ? 'opposition' : 'target'); return; }
+    setSelected(selectedIso.has(country.iso) ? selected.filter((c) => c.iso !== country.iso) : [...selected, { iso: country.iso, name: country.name, opposition }]);
   };
   const moveTooltip = useCallback((event, country) => {
     const { offsetX, offsetY } = event.nativeEvent;
@@ -95,11 +92,13 @@ export function WorldMap({ selected, setSelected, portfolio }) {
       {countries.map((country) => {
         const isPortfolio = portfolioText && (country.iso.toLowerCase() === portfolioText || country.name.toLowerCase() === portfolioText);
         const isSelected = selectedIso.has(country.iso);
-        return <path key={`${country.iso}-${country.name}`} tabIndex="0" d={country.d} data-iso={country.iso} className={`country ${isSelected ? 'selected' : ''} ${isPortfolio ? 'portfolio' : ''} ${isPortfolio && isSelected ? 'selfTarget' : ''}`} onClick={() => toggle(country)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle(country); }} onMouseMove={(e) => moveTooltip(e, country)} onMouseLeave={hideTooltip}><title>{country.name} · {country.iso}</title></path>;
+        const isOpposition = selected.find((c) => c.iso === country.iso)?.opposition;
+        const isFocused = searchFocusIso === country.iso;
+        return <path key={`${country.iso}-${country.name}`} tabIndex="0" d={country.d} data-iso={country.iso} className={`country ${isSelected ? 'selected' : ''} ${isOpposition ? 'opposition' : ''} ${isFocused ? 'focusedCountry' : ''} ${isPortfolio ? 'portfolio' : ''} ${isPortfolio && isSelected ? 'selfTarget' : ''}`} onClick={() => toggle(country)} onContextMenu={(e) => { e.preventDefault(); toggle(country, true); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle(country); }} onMouseMove={(e) => setTooltip({ x: e.nativeEvent.offsetX + 14, y: e.nativeEvent.offsetY + 14, name: country.name, iso: country.iso })} onMouseLeave={() => setTooltip(null)}><title>{country.name} · {country.iso}</title></path>;
       })}
       </g>
     </svg>
     {tooltip && <div className="tooltip show" style={{ left: tooltip.x, top: tooltip.y }}><b>{tooltip.name}</b><br />ISO {tooltip.iso}</div>}
-    <p className="attribution">Map geometry: Natural Earth via world-atlas/topojson, rendered as SVG.</p>
+    <p className="attribution">Map geometry: Natural Earth via world-atlas/topojson. Left click: select target · Right click: opposition · Keyboard: Enter/Space selects.</p>
   </div>;
 }

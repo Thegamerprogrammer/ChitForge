@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:parser": "node src/responseParser.test.mjs"
+    "test": "node --test"
   },
   "dependencies": {
     "@google/genai": "^2.16.0",
